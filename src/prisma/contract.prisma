@@ -1,0 +1,114 @@
+// use prisma-next
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String   @unique
+  role      String
+  language  String
+  createdAt DateTime @default(now())
+  artisan   Artisan?
+}
+
+model Artisan {
+  id         Int    @id @default(autoincrement())
+  userId     Int    @unique
+  user       User   @relation(fields: [userId], references: [id])
+  location   String
+  state      String
+  district   String
+  craftType  String
+  experience Int?
+  products   Product[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  artisanId   Int
+  artisan     Artisan  @relation(fields: [artisanId], references: [id])
+  name        String
+  category    String?
+  material    String?
+  description String?
+  price       Float?
+  quantity    Int      @default(0)
+  status      String   @default("draft")
+  createdAt   DateTime @default(now())
+
+  images      ProductImage[]
+  voiceInputs VoiceInput[]
+  catalogue   Catalogue?
+  pricing     Pricing?
+  inquiries   B2BInquiry[]
+  orders      Order[]
+}
+
+model ProductImage {
+  id             Int     @id @default(autoincrement())
+  productId      Int
+  product        Product @relation(fields: [productId], references: [id])
+  originalUrl    String
+  transparentUrl String?
+  processedUrl   String?
+  thumbnailUrl   String?
+}
+
+model VoiceInput {
+  id         Int     @id @default(autoincrement())
+  productId  Int
+  product    Product @relation(fields: [productId], references: [id])
+  audioUrl   String
+  language   String?
+  transcript String?
+}
+
+model Catalogue {
+  id                Int     @id @default(autoincrement())
+  productId         Int     @unique
+  product           Product @relation(fields: [productId], references: [id])
+  titleEn           String?
+  titleHi           String?
+  descriptionEn     String?
+  descriptionHi     String?
+  keywords          String[]
+  careInstructions  String?
+}
+
+model Pricing {
+  id                Int     @id @default(autoincrement())
+  productId         Int     @unique
+  product           Product @relation(fields: [productId], references: [id])
+  materialCost      Float?
+  laborCost         Float?
+  minimumPrice      Float?
+  marketMin         Float?
+  marketMax         Float?
+  recommendedPrice  Float?
+}
+
+model B2BInquiry {
+  id               Int      @id @default(autoincrement())
+  buyerId          Int
+  artisanId        Int
+  productId        Int
+  product          Product  @relation(fields: [productId], references: [id])
+  quantity         Int
+  targetPrice      Float?
+  deliveryLocation String?
+  requiredDate     DateTime?
+  message          String?
+  status           String   @default("PENDING")
+  createdAt        DateTime @default(now())
+}
+
+model Order {
+  id          Int      @id @default(autoincrement())
+  buyerId     Int
+  artisanId   Int
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Int
+  totalAmount Float
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+}

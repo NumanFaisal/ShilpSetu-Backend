@@ -1,0 +1,51 @@
+{
+  "name": "shilpsetu-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "prisma skills sync || exit 0",
+    "contract:emit": "prisma contract emit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@prisma/cli-engine": "^0.2.3",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.4.0",
+    "@types/speakeasy": "^2.0.10",
+    "prisma": "^8.0.0-rc.10",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.10.0",
+    "@prisma/orm-postgres": "^8.0.0-rc.8",
+    "axios": "^1.20.0",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^6.3.2",
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.12.0",
+    "multer": "^2.3.0",
+    "prettier": "^3.9.6",
+    "puppeteer": "^25.9.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.4",
+    "speakeasy": "^2.0.0",
+    "zod": "^4.5.4"
+  }
+}

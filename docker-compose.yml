@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: shilpsetu
+      POSTGRES_PASSWORD: shilpsetu
+      POSTGRES_DB: shilpsetu
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - "6380:6379"
+
+volumes:
+  pgdata:
