@@ -37,3 +37,25 @@ export const imageProcessingQueue = new Queue<ImageJobData>(
     defaultJobOptions,
   }
 );
+
+// ---------------------------------------------------------------------------
+// Marketplace publish queue ("Publish Everywhere")
+// ---------------------------------------------------------------------------
+
+export interface MarketplacePublishJobData {
+  productId: number;
+  marketplace: string; // Marketplace union type
+}
+
+export const MARKETPLACE_PUBLISH_QUEUE_NAME = 'marketplace-publish';
+
+export const marketplacePublishQueue = new Queue<MarketplacePublishJobData>(
+  MARKETPLACE_PUBLISH_QUEUE_NAME,
+  {
+    connection: createRedisConnection(),
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    },
+  },
+);

@@ -1,19 +1,23 @@
 import app from './app';
 import { env } from './config/env';
 import { startImageProcessingWorker } from './jobs/imageProcessing.worker';
+import { startMarketplacePublishWorker } from './jobs/marketplace.worker';
 
 const PORT = env.PORT || 4000;
 
-// Start BullMQ worker for background image processing
-const worker = startImageProcessingWorker();
+// Start BullMQ workers for background processing
+const imageWorker = startImageProcessingWorker();
+const marketplaceWorker = startMarketplacePublishWorker();
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  await worker.close();
+  await imageWorker.close();
+  await marketplaceWorker.close();
   process.exit(0);
 });
 process.on('SIGTERM', async () => {
-  await worker.close();
+  await imageWorker.close();
+  await marketplaceWorker.close();
   process.exit(0);
 });
 

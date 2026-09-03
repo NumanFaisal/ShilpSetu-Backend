@@ -21,7 +21,11 @@ model Artisan {
   district   String
   craftType  String
   experience Int?
+  slug       String?  @unique
+  storeName  String?
+  bio        String?
   products   Product[]
+  marketplaceConnections MarketplaceConnection[]
 }
 
 model Product {
@@ -43,6 +47,7 @@ model Product {
   pricing     Pricing?
   inquiries   B2BInquiry[]
   orders      Order[]
+  marketplaceListings MarketplaceListing[]
 }
 
 model ImageBatch {
@@ -177,4 +182,34 @@ model Order {
   totalAmount Float
   status      String   @default("PENDING")
   createdAt   DateTime @default(now())
+}
+
+model MarketplaceConnection {
+  id               Int      @id @default(autoincrement())
+  artisanId        Int
+  artisan          Artisan  @relation(fields: [artisanId], references: [id])
+  marketplace      String
+  status           String   @default("NOT_CONNECTED")
+  externalSellerId String?
+  accessTokenEnc   String?
+  refreshTokenEnc  String?
+  expiresAt        DateTime?
+  metadata         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+
+  @@unique([artisanId, marketplace])
+}
+
+model MarketplaceListing {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  product      Product  @relation(fields: [productId], references: [id])
+  marketplace  String
+  externalId   String?
+  status       String   @default("NOT_PUBLISHED")
+  errorMessage String?
+  lastSyncedAt DateTime?
+
+  @@unique([productId, marketplace])
 }

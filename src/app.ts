@@ -6,6 +6,10 @@ import { z } from 'zod';
 import authRoutes from './routes/auth.routes';
 import imageRoutes from './routes/image.routes';
 import styleRoutes from './routes/style.routes';
+import marketplaceRoutes from './routes/marketplace.routes';
+import catalogRoutes from './routes/catalog.routes';
+import adminRoutes from './routes/admin.routes';
+import i18nRoutes from './routes/i18n.routes';
 
 const app = express();
 
@@ -19,6 +23,13 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Routes ──────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api', styleRoutes);   // GET /api/studio-styles (public)
+// Marketplace + catalog routes are mounted BEFORE imageRoutes: imageRoutes has a
+// blanket router.use(authenticate) that would otherwise 401 every /api/* request
+// before these public routes (storefront, QR, inquiries) get a chance to match.
+app.use('/api', marketplaceRoutes);
+app.use('/api', catalogRoutes);
+app.use('/api', i18nRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api', imageRoutes);
 
 // ─── Health Check ─────────────────────────────────

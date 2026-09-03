@@ -31,6 +31,13 @@ const envSchema = z.object({
   // Background Removal API (Fallback)
   POOF_BG_API_KEY: z.string().optional(),
   POOF_BG_API_URL: z.string().default('https://api.poof.bg/v1/remove'),
+
+  // Marketplace token encryption (AES-256-GCM key, base64 or raw)
+  TOKEN_ENCRYPTION_KEY: z.string().default('shilpsetu-dev-encryption-key-change-me'),
+
+  // Admin bootstrap (Component 5)
+  ADMIN_PHONE: z.string().optional(),
+  ADMIN_PASSWORD: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -1,0 +1,19 @@
+{
+  "appName": "ShilpSetu",
+  "storefront": "Storefront",
+  "products": "Products",
+  "inquiries": "Inquiries",
+  "marketplace": "Marketplace",
+  "connect": "Connect",
+  "publish": "Publish",
+  "dashboard": "Dashboard",
+  "catalog": "Catalog",
+  "welcome": "Welcome to ShilpSetu",
+  "myStore": "My Store",
+  "noProducts": "No products yet",
+  "price": "Price",
+  "quantity": "Quantity",
+  "status": "Status",
+  "published": "Published",
+  "draft": "Draft"
+}

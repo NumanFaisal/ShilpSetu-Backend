@@ -14,8 +14,23 @@ export const signinSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const sendOtpSchema = z.object({
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9]{10,15}$/, 'Phone must be 10-15 digits (optionally with + prefix)'),
+});
+
+export const verifyOtpSchema = z.object({
+  phone: z.string().trim().min(1, 'Phone is required'),
+  code: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit number'),
+  name: z.string().trim().min(1).max(100).optional(), // optional for auto-signup
+});
+
 export type SignupInput = z.infer<typeof signupSchema>;
 export type SigninInput = z.infer<typeof signinSchema>;
+export type SendOtpInput = z.infer<typeof sendOtpSchema>;
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 
 /** Public-facing user object — never includes the password hash. */
 export interface PublicUser {
