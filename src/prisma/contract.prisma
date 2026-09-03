@@ -1,13 +1,15 @@
 // use prisma-next
 
 model User {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String   @unique
-  role      String
-  language  String
-  createdAt DateTime @default(now())
-  artisan   Artisan?
+  id           Int      @id @default(autoincrement())
+  name         String
+  phone        String   @unique
+  passwordHash String
+  role         String   @default("user")
+  language     String   @default("en")
+  createdAt    DateTime @default(now())
+  artisan      Artisan?
+  batches      ImageBatch[]
 }
 
 model Artisan {
@@ -43,14 +45,78 @@ model Product {
   orders      Order[]
 }
 
+model ImageBatch {
+  id              String   @id @default(uuid())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  style           String   @default("white_studio")
+  productId       Int?
+  status          String   @default("PENDING")
+  totalImages     Int      @default(0)
+  completedImages Int      @default(0)
+  failedImages    Int      @default(0)
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  images          ProductImage[]
+}
+
 model ProductImage {
-  id             Int     @id @default(autoincrement())
-  productId      Int
-  product        Product @relation(fields: [productId], references: [id])
-  originalUrl    String
-  transparentUrl String?
-  processedUrl   String?
-  thumbnailUrl   String?
+  id                  String    @id @default(uuid())
+  batchId             String
+  batch               ImageBatch @relation(fields: [batchId], references: [id])
+  productId           Int?
+  product             Product?  @relation(fields: [productId], references: [id])
+  originalKey         String
+  cutoutKey           String?
+  cleanedKey          String?
+  studioKey           String?
+  lightingKey         String?
+  shadowKey           String?
+  compositionKey      String?
+  outputSquareKey     String?
+  outputPortraitKey   String?
+  outputLandscapeKey  String?
+  status              String    @default("QUEUED")
+  currentStep         String?
+  progress            Int       @default(0)
+  error               String?
+  analysis            String?
+  boundingBox         String?
+  validationScore     Float?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now())
+
+  versions            ImageVersion[]
+}
+
+model ImageVersion {
+  id              String   @id @default(uuid())
+  imageId         String
+  image           ProductImage @relation(fields: [imageId], references: [id])
+  processingStep  String
+  storageKey      String
+  width           Int?
+  height          Int?
+  format          String?
+  metadata        String?
+  createdAt       DateTime @default(now())
+}
+
+model AILog {
+  id          String   @id @default(uuid())
+  batchId     String?
+  imageId     String?
+  provider    String
+  model       String
+  operation   String
+  attempt     Int      @default(1)
+  durationMs  Int
+  success     Boolean
+  costEstimate Float  @default(0)
+  error       String?
+  createdAt   DateTime @default(now())
 }
 
 model VoiceInput {
