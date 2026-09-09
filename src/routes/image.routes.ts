@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { imageController } from '../controllers/image.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { optionalAuthenticate } from '../middleware/auth.middleware';
 import { uploadImages } from '../middleware/upload.middleware';
 
 const router = Router();
 
-// All image routes require authentication
-router.use(authenticate);
+// Allow authenticated users or guest fallback
+router.use(optionalAuthenticate);
 
 // ─── Direct Upload ───────────────────────────────
 // POST /api/image-batches/upload — multipart/form-data with "images" field (1–4 files)

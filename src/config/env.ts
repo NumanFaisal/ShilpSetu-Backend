@@ -27,6 +27,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
+  TAVILY_API_KEY: z.string().optional(),
   
   // Background Removal API (Fallback)
   POOF_BG_API_KEY: z.string().optional(),

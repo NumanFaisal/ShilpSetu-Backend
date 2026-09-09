@@ -102,6 +102,15 @@ export function startMarketplacePublishWorker() {
     console.log(`[marketplace-worker] Job ${job.id} completed`);
   });
 
+  let lastErrorTime = 0;
+  worker.on('error', (err) => {
+    const now = Date.now();
+    if (now - lastErrorTime > 15000) {
+      console.warn('[marketplace-worker] Redis connection issue:', err.message);
+      lastErrorTime = now;
+    }
+  });
+
   console.log('[marketplace-worker] Started');
 
   return worker;

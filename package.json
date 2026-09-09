@@ -4,9 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "npx tsx watch src/index.ts",
+    "start": "npx tsx src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:apis": "npx tsx scripts/test-all-apis.ts",
     "postinstall": "prisma skills sync || exit 0",
     "contract:emit": "prisma contract emit",
     "seed:admin": "npx tsx scripts/seed-admin.ts"
@@ -24,6 +25,7 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.4.0",
+    "@types/qrcode": "^1.5.6",
     "@types/speakeasy": "^2.0.10",
     "prisma": "^8.0.0-rc.10",
     "ts-node-dev": "^2.0.0",

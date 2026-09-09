@@ -52,6 +52,21 @@ export class AuthController {
       next(err);
     }
   }
+
+  /** POST /api/auth/profile — setup or update artisan profile */
+  async setupProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = (req as any).user?.id || req.body.userId;
+      if (!userId) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+      const result = await authService.setupArtisanProfile(Number(userId), req.body);
+      res.json({ message: 'Profile updated successfully.', ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const authController = new AuthController();

@@ -2,8 +2,198 @@ import puppeteer from 'puppeteer';
 import { db } from '../prisma/db';
 import { r2 } from '../lib/r2';
 import { HttpError } from '../lib/http-error';
+import { llmService } from '../ai/llm';
+
+export interface GenerateCatalogInput {
+  voiceTranscription?: string;
+  manualDescription?: string;
+  attributes?: {
+    productName?: string;
+    material?: string;
+    craftType?: string;
+    size?: string;
+    dimensions?: string;
+    region?: string;
+    [key: string]: any;
+  };
+  language?: string;
+}
+
+export interface GeneratedCatalogOutput {
+  name: string;
+  titleEn: string;
+  titleHi: string;
+  aiDescription: string;
+  descriptionEn: string;
+  descriptionHi: string;
+  category: string;
+  craftType: string;
+  material: string;
+  dimensions: string;
+  careInstructions: string;
+  tags: string[];
+  keywords: string[];
+}
+
+export interface SaveCatalogInput {
+  titleEn?: string;
+  titleHi?: string;
+  descriptionEn?: string;
+  descriptionHi?: string;
+  keywords?: string[];
+  careInstructions?: string;
+  material?: string;
+  category?: string;
+}
+
+const SMART_CATALOG_PROMPT = `You are a premier e-commerce catalog specialist for the Ministry of Social Justice & Empowerment (MoSJE) and Indian Artisan Handicrafts (ShilpSetu).
+You will receive a raw product description (from voice transcription or manual entry) and any extracted craft attributes.
+
+Write a polished, SEO-optimized, bilingual e-commerce catalog listing.
+Rules:
+- Be authentic to traditional Indian artisan crafts (e.g. Chanderi Silk, Terracotta Pottery, Dhokra Craft, Wooden Carving, Brassware, Blue Pottery).
+- Do not invent non-existent materials or specifications; use the facts provided.
+- Provide BOTH professional English and authentic, natural Hindi copy.
+- Include practical washing/care instructions suited to the craft and material.
+- Derive 5-8 high-volume search tags/keywords in lowercase.
+
+Return JSON only, no markdown fences:
+{
+  "name": string,              // Clear product title under 65 chars (e.g. "Handcrafted Terracotta Floral Vase")
+  "titleEn": string,           // Same as name
+  "titleHi": string,           // Authentic Hindi title (e.g. "हस्तनिर्मित टेराकोटा नक्काशीदार फूलदान")
+  "aiDescription": string,     // 3-4 sentence engaging e-commerce description in English
+  "descriptionEn": string,     // Same as aiDescription
+  "descriptionHi": string,     // 3-4 sentence polished description in Hindi
+  "category": string,          // Primary category (e.g. "Home & Decor", "Textiles", "Kitchenware")
+  "craftType": string,         // Specific craft (e.g. "Terracotta Pottery", "Chanderi Weaving", "Dhokra Art")
+  "material": string,          // Material (e.g. "Natural Terracotta Clay", "Pure Silk", "Bell Metal Brass")
+  "dimensions": string,        // Dimensions / Size if stated or sensible standard estimate
+  "careInstructions": string,  // Practical care instructions (e.g. "Wipe gently with dry cloth; avoid abrasive cleaners")
+  "tags": string[],            // 5-8 lowercase SEO search tags
+  "keywords": string[]         // Same as tags
+}`;
 
 class CatalogService {
+  /**
+   * Generates a smart bilingual catalog listing from voice transcription or manual text.
+   */
+  async generateSmartCatalog(input: GenerateCatalogInput): Promise<GeneratedCatalogOutput> {
+    const sourceText = (input.voiceTranscription || input.manualDescription || '').trim();
+    const attributes = input.attributes || {};
+
+    if (!sourceText && !attributes.productName && !attributes.material && !attributes.craftType) {
+      throw new HttpError(400, 'Please provide a product description, voice transcript, or craft attributes.');
+    }
+
+    const userPayload = JSON.stringify({
+      description: sourceText || attributes.description || '',
+      attributes,
+    });
+
+    try {
+      const generated = await llmService.generateJSON<GeneratedCatalogOutput>([
+        { role: 'system', content: SMART_CATALOG_PROMPT },
+        { role: 'user', content: userPayload },
+      ], { temperature: 0.3 });
+
+      const name = generated.name || generated.titleEn || attributes.productName || 'Handcrafted Artisan Product';
+      const tags = Array.isArray(generated.tags) ? generated.tags : [];
+
+      return {
+        name,
+        titleEn: generated.titleEn || name,
+        titleHi: generated.titleHi || name,
+        aiDescription: generated.aiDescription || generated.descriptionEn || sourceText,
+        descriptionEn: generated.descriptionEn || generated.aiDescription || sourceText,
+        descriptionHi: generated.descriptionHi || generated.aiDescription || sourceText,
+        category: generated.category || attributes.craftType || 'Handicraft',
+        craftType: generated.craftType || attributes.craftType || 'Artisan Craft',
+        material: generated.material || attributes.material || '',
+        dimensions: generated.dimensions || attributes.size || attributes.dimensions || '',
+        careInstructions: generated.careInstructions || 'Handle with care. Handcrafted product.',
+        tags,
+        keywords: generated.keywords || tags,
+      };
+    } catch (err: any) {
+      console.error('[CatalogService] Catalog generation fallback:', err.message);
+      const fallbackName = attributes.productName || sourceText.slice(0, 40) || 'Artisan Craft';
+      return {
+        name: fallbackName,
+        titleEn: fallbackName,
+        titleHi: fallbackName,
+        aiDescription: sourceText || 'Handcrafted authentic artisan product made with traditional techniques.',
+        descriptionEn: sourceText || 'Handcrafted authentic artisan product made with traditional techniques.',
+        descriptionHi: sourceText || 'पारंपरिक तकनीक से निर्मित प्रामाणिक हस्तशिल्प उत्पाद।',
+        category: attributes.craftType || 'Handicraft',
+        craftType: attributes.craftType || 'Handicraft',
+        material: attributes.material || '',
+        dimensions: attributes.size || '',
+        careInstructions: 'Clean with a soft dry cloth.',
+        tags: ['handicraft', 'handmade', 'artisan', 'indian-craft'],
+        keywords: ['handicraft', 'handmade', 'artisan', 'indian-craft'],
+      };
+    }
+  }
+
+  /**
+   * Save or update catalog specifications for an existing product in the database.
+   */
+  async saveProductCatalog(productId: number, data: SaveCatalogInput) {
+    const product = await db.orm.public.Product.where({ id: productId }).all().first();
+    if (!product) throw new HttpError(404, 'Product not found.');
+
+    const keywords = data.keywords || [];
+
+    // Check if catalogue record already exists
+    const existingCatalogue = await db.orm.public.Catalogue.where({ productId }).all().first();
+
+    let catalogueRecord;
+    if (existingCatalogue) {
+      await db.orm.public.Catalogue.where({ id: existingCatalogue.id }).update({
+        titleEn: data.titleEn ?? existingCatalogue.titleEn,
+        titleHi: data.titleHi ?? existingCatalogue.titleHi,
+        descriptionEn: data.descriptionEn ?? existingCatalogue.descriptionEn,
+        descriptionHi: data.descriptionHi ?? existingCatalogue.descriptionHi,
+        keywords,
+        careInstructions: data.careInstructions ?? existingCatalogue.careInstructions,
+      });
+      catalogueRecord = await db.orm.public.Catalogue.where({ id: existingCatalogue.id }).all().first();
+    } else {
+      catalogueRecord = await db.orm.public.Catalogue.create({
+        productId,
+        titleEn: data.titleEn ?? product.name,
+        titleHi: data.titleHi ?? null,
+        descriptionEn: data.descriptionEn ?? product.description,
+        descriptionHi: data.descriptionHi ?? null,
+        keywords,
+        careInstructions: data.careInstructions ?? null,
+      });
+    }
+
+    // Also update product title & description if provided
+    await db.orm.public.Product.where({ id: productId }).update({
+      name: data.titleEn ?? product.name,
+      description: data.descriptionEn ?? product.description,
+      material: data.material ?? product.material,
+      category: data.category ?? product.category,
+    });
+
+    return catalogueRecord;
+  }
+
+  /**
+   * Fetch saved catalog record for a given product.
+   */
+  async getProductCatalog(productId: number) {
+    const catalogue = await db.orm.public.Catalogue.where({ productId }).all().first();
+    if (!catalogue) throw new HttpError(404, 'Catalog record not found for this product.');
+    return catalogue;
+  }
+
+  /**
+   * Generate an artisan's PDF catalog of published products.
+   */
   async generateArtisanPdf(artisanId: number): Promise<Buffer> {
     const artisan = await db.orm.public.Artisan
       .where({ id: artisanId })

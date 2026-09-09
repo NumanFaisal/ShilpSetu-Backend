@@ -31,8 +31,13 @@ export function startImageProcessingWorker() {
     console.error(`[Worker] ❌ Job ${job?.id} failed:`, err.message);
   });
 
+  let lastErrorTime = 0;
   worker.on('error', (err) => {
-    console.error('[Worker] Worker error:', err.message);
+    const now = Date.now();
+    if (now - lastErrorTime > 15000) {
+      console.warn('[Worker] Worker connection issue (Redis):', err.message);
+      lastErrorTime = now;
+    }
   });
 
   console.log('[Worker] 🚀 Image processing worker started.');

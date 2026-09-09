@@ -89,7 +89,11 @@ export class ImageController {
 
       const result = await imageService.getBatchDetails(batchId, userId);
       res.json(result);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message === 'Batch not found') {
+        res.status(404).json({ error: 'Batch not found' });
+        return;
+      }
       next(err);
     }
   }

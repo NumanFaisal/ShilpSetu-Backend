@@ -37,8 +37,10 @@ Use this to test the API with **Postman**.
 8. [ONDC / GeM Exports](#8-ondc--gem-exports)
 9. [Catalog PDF](#9-catalog-pdf)
 10. [Image Processing](#10-image-processing)
-11. [Admin & Analytics](#11-admin--analytics)
-12. [i18n (Multilingual)](#12-i18n-multilingual)
+11. [Component 2: Voice-to-Listing & Multilingual Catalog](#11-component-2-voice-to-listing--multilingual-catalog)
+12. [Component 3: Dynamic ML Pricing Assistant](#12-component-3-dynamic-ml-pricing-assistant)
+13. [Admin & Analytics](#13-admin--analytics)
+14. [i18n (Multilingual)](#14-i18n-multilingual)
 
 ---
 
@@ -875,6 +877,197 @@ Supported langs: `en`, `hi`, `bn`, `ta`, `te`, `mr`, `gu`, `kn`.
 
 ---
 
+## 11. Component 2: Voice-to-Listing & Multilingual Catalog
+
+Lets an artisan describe their product out loud in regional languages (Hindi, Tamil, Telugu, Bengali, Marathi, Gujarati, Kannada, Hinglish) and auto-generates SEO-optimized bilingual listings.
+
+### `POST /api/voice/process`
+Upload a voice recording note for transcription, translation, and structured NLP extraction.
+
+**Headers:** `Content-Type: multipart/form-data`
+
+**Form-data fields:**
+- `audio` (required): audio recording file (`.m4a`, `.mp3`, `.wav`, `.webm`, `.ogg`)
+- `productId` (optional): ID of product to link this recording to
+
+**Response 200**
+```json
+{
+  "transcription": "यह शुद्ध हाथ से बना मिट्टी का फूलदान है जिस पर पारंपरिक नक्काशी की गई है",
+  "englishTranscription": "This is a pure handmade terracotta flower vase with traditional carving work.",
+  "detectedLanguage": "hi",
+  "extractedAttributes": {
+    "productName": "Handcrafted Terracotta Flower Vase",
+    "material": "Terracotta Clay",
+    "craftType": "Terracotta Pottery",
+    "size": "12 inches height",
+    "description": "Handmade terracotta flower vase featuring traditional Indian hand-carved floral patterns."
+  },
+  "voiceInputId": 1
+}
+```
+
+---
+
+### `POST /api/catalog/generate`
+Auto-fills SEO product title, craft type & material, key features & dimensions, washing/care instructions, and search tags/keywords in both English and Hindi.
+
+**Body (JSON)**
+```json
+{
+  "voiceTranscription": "Pure Chanderi silk saree with zari border, 6.5 meters length",
+  "manualDescription": "",
+  "attributes": {
+    "material": "Chanderi Silk",
+    "craftType": "Handloom Weaving"
+  }
+}
+```
+
+**Response 200**
+```json
+{
+  "name": "Handcrafted Chanderi Silk Saree with Zari Border",
+  "titleEn": "Handcrafted Chanderi Silk Saree with Zari Border",
+  "titleHi": "जरी बॉर्डर युक्त हस्तनिर्मित चंदेरी सिल्क साड़ी",
+  "aiDescription": "Authentic handloom Chanderi silk saree woven by master weavers, featuring a delicate shimmering zari border and sheer lightweight texture.",
+  "descriptionEn": "Authentic handloom Chanderi silk saree woven by master weavers, featuring a delicate shimmering zari border and sheer lightweight texture.",
+  "descriptionHi": "मास्टर बुनकरों द्वारा बुनी गई प्रामाणिक हथकरघा चंदेरी रेशमी साड़ी, जिसमें आकर्षक जरी बॉर्डर और पारंपरिक सुंदरता समाहित है।",
+  "category": "Textiles & Apparel",
+  "craftType": "Chanderi Handloom Weaving",
+  "material": "Pure Chanderi Silk & Metallic Zari",
+  "dimensions": "6.5 meters (including unstitched blouse piece)",
+  "careInstructions": "Dry clean only. Store wrapped in soft cotton fabric away from direct sunlight.",
+  "tags": ["chanderi", "silk-saree", "handloom", "zari-border", "indian-handicraft", "traditional-wear"],
+  "keywords": ["chanderi", "silk-saree", "handloom", "zari-border", "indian-handicraft", "traditional-wear"]
+}
+```
+
+---
+
+### `POST /api/catalog/:productId/save`
+Save or update catalog attributes directly into the database (`Catalogue` table and `Product` table).
+
+**Headers:** `Authorization: Bearer {{token}}`
+
+**Body (JSON)**
+```json
+{
+  "titleEn": "Handcrafted Chanderi Silk Saree with Zari Border",
+  "titleHi": "जरी बॉर्डर युक्त हस्तनिर्मित चंदेरी सिल्क साड़ी",
+  "descriptionEn": "Authentic handloom Chanderi silk saree woven by master weavers.",
+  "descriptionHi": "मास्टर बुनकरों द्वारा बुनी गई प्रामाणिक हथकरघा चंदेरी रेशमी साड़ी।",
+  "keywords": ["chanderi", "silk-saree", "handloom"],
+  "careInstructions": "Dry clean only."
+}
+```
+
+**Response 200**
+```json
+{
+  "message": "Catalog details saved successfully.",
+  "catalogue": {
+    "id": 1,
+    "productId": 1,
+    "titleEn": "Handcrafted Chanderi Silk Saree with Zari Border",
+    "titleHi": "जरी बॉर्डर युक्त हस्तनिर्मित चंदेरी सिल्क साड़ी",
+    "descriptionEn": "Authentic handloom Chanderi silk saree woven by master weavers.",
+    "descriptionHi": "मास्टर बुनकरों द्वारा बुनी गई प्रामाणिक हथकरघा चंदेरी रेशमी साड़ी।",
+    "keywords": ["chanderi", "silk-saree", "handloom"],
+    "careInstructions": "Dry clean only."
+  }
+}
+```
+
+---
+
+## 12. Component 3: Dynamic ML Pricing Assistant
+
+Stops artisans from underselling their work by calculating a data-backed price range based on cost factors and e-commerce market benchmarks.
+
+### `POST /api/pricing/estimate`
+Computes Minimum Base Cost, Benchmark E-Commerce Range, and Recommended Retail Price with margin breakdown.
+
+**Body (JSON)**
+```json
+{
+  "name": "Chanderi Silk Handloom Saree",
+  "category": "Textiles",
+  "material": "Chanderi Silk",
+  "craftComplexity": "high",
+  "materialCost": 800,
+  "labourHours": 12,
+  "wageRate": 100,
+  "quantity": 1
+}
+```
+- `craftComplexity`: `"low"`, `"medium"`, `"high"`, `"intricate"` (or rating `1` to `5`)
+- `materialCost`: raw material cost in ₹
+- `labourHours`: total labor hours
+- `wageRate` (optional): fair hourly wage (defaults to ₹100/hr)
+
+**Response 200**
+```json
+{
+  "baseCost": 2420,
+  "minimumBaseCost": 2420,
+  "marketMin": 3025,
+  "marketMax": 8500,
+  "suggested": 4200,
+  "recommendedPrice": 4200,
+  "reasoning": "A recommended retail price of ₹4,200 allows a strong 35.2% artisan profit margin (₹1,480) above your ₹2,420 production cost, positioning the product competitively against Amazon (₹4,830) and Flipkart (₹4,284).",
+  "marginBreakdown": {
+    "materialCost": 800,
+    "materialPercentage": 19.0,
+    "laborCost": 1200,
+    "laborPercentage": 28.6,
+    "complexityPremium": 420,
+    "complexityPercentage": 10.0,
+    "baseCost": 2420,
+    "packagingAndBuffer": 420,
+    "artisanProfit": 1480,
+    "profitPercentage": 35.2,
+    "recommendedPrice": 4200
+  },
+  "marketplaceBreakdown": [
+    { "marketplace": "Amazon", "avgPrice": 4830, "listingsFound": 14 },
+    { "marketplace": "Flipkart", "avgPrice": 4284, "listingsFound": 11 },
+    { "marketplace": "Meesho", "avgPrice": 3276, "listingsFound": 18 },
+    { "marketplace": "IndiaMART", "avgPrice": 2730, "listingsFound": 7 },
+    { "marketplace": "Etsy", "avgPrice": 6930, "listingsFound": 6 }
+  ],
+  "sources": []
+}
+```
+
+---
+
+### `POST /api/pricing/:productId/save`
+Save estimated pricing directly to the `Pricing` table and update the `Product.price`.
+
+**Headers:** `Authorization: Bearer {{token}}`
+
+**Body (JSON)**
+Same payload as `/api/pricing/estimate`.
+
+**Response 200**
+```json
+{
+  "message": "Pricing saved successfully.",
+  "pricing": {
+    "baseCost": 2420,
+    "minimumBaseCost": 2420,
+    "marketMin": 3025,
+    "marketMax": 8500,
+    "suggested": 4200,
+    "recommendedPrice": 4200,
+    "pricingId": 1
+  }
+}
+```
+
+---
+
 ## Common Error Format
 Every non-2xx response uses this shape:
 ```json
@@ -900,6 +1093,15 @@ Common codes:
 | POST | `/api/auth/signin` | – | phone, password |
 | POST | `/api/auth/send-otp` | – | phone |
 | POST | `/api/auth/verify-otp` | – | phone, code [, name] |
+| POST | `/api/voice/process` | – | multipart (audio file) |
+| GET | `/api/voice/:productId` | – | – |
+| POST | `/api/catalog/generate` | – | voiceTranscription, attributes, ... |
+| POST | `/api/catalog/:productId/save` | ✅ | titleEn, titleHi, descriptionEn, ... |
+| GET | `/api/catalog/:productId` | – | – |
+| GET | `/api/catalog/:artisanId/pdf` | ✅ | – |
+| POST | `/api/pricing/estimate` | – | materialCost, labourHours, complexity, ... |
+| POST | `/api/pricing/:productId/save` | ✅ | materialCost, labourHours, complexity, ... |
+| GET | `/api/pricing/:productId` | – | – |
 | GET | `/api/studio-styles` | – | – |
 | GET | `/api/studio-styles/:styleId/preview` | – | – |
 | GET | `/api/public/stores/:slug` | – | – |
@@ -914,7 +1116,6 @@ Common codes:
 | GET | `/api/products/:id/marketplaces` | ✅ | – |
 | GET | `/api/exports/ondc/:productId` | ✅ | – |
 | GET | `/api/exports/gem/:productId` | ✅ | – |
-| GET | `/api/catalog/:artisanId/pdf` | ✅ | – |
 | POST | `/api/image-batches/upload` | ✅ | multipart (images) |
 | POST | `/api/image-batches` | ✅ | imageCount [, productId, style] |
 | POST | `/api/image-batches/:batchId/complete` | ✅ | – |
@@ -931,3 +1132,4 @@ Common codes:
 | GET | `/api/admin/regional` | ✅ admin | – |
 | GET | `/api/admin/marketplaces` | ✅ admin | – |
 | GET | `/api/i18n/:lang` | – | – |
+

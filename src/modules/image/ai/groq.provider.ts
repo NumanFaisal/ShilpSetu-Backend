@@ -20,8 +20,9 @@ export class GroqAIProvider implements ImageAIProvider {
   public name = 'groq';
   private apiKey: string;
   private baseUrl = 'https://api.groq.com/openai/v1';
-  private visionModel = 'llama-3.2-90b-vision-preview';
-  private textModel = 'llama-3.1-8b-instant';
+  // llama-4-scout supports vision and is Groq's current fast multimodal model
+  private visionModel = 'meta-llama/llama-4-scout-17b-16e-instruct';
+  private textModel = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
   constructor() {
     this.apiKey = env.GROQ_API_KEY || '';
@@ -33,8 +34,12 @@ export class GroqAIProvider implements ImageAIProvider {
     max_tokens?: number;
     temperature?: number;
   }): Promise<string> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     return fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
@@ -45,7 +50,7 @@ export class GroqAIProvider implements ImageAIProvider {
         max_tokens: params.max_tokens || 2048,
         temperature: params.temperature ?? 0.1,
       }),
-    })
+    }).finally(() => clearTimeout(timeout))
       .then((res) => {
         if (!res.ok) {
           return res.text().then((t) => {

@@ -1,30 +1,33 @@
 import { z } from 'zod';
 
 export const signupSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(100, 'Name is too long'),
-  phone: z
-    .string()
-    .trim()
-    .regex(/^\+?[0-9]{10,15}$/, 'Phone must be 10-15 digits (optionally with + prefix)'),
+  name: z.string().trim().min(1, 'Full name is required').max(100, 'Name is too long'),
+  email: z.string().trim().min(3, 'Email or username is required').max(100),
+  username: z.string().trim().optional(),
   password: z.string().min(6, 'Password must be at least 6 characters').max(72, 'Password is too long'),
+  role: z.enum(['artisan', 'buyer', 'user', 'admin']).default('artisan').optional(),
 });
 
 export const signinSchema = z.object({
-  phone: z.string().trim().min(1, 'Phone is required'),
+  email: z.string().trim().optional(),
+  username: z.string().trim().optional(),
+  identifier: z.string().trim().optional(),
+  phone: z.string().trim().optional(), // backward compat
   password: z.string().min(1, 'Password is required'),
+}).refine(data => !!(data.email || data.username || data.identifier || data.phone), {
+  message: 'Email or username is required',
+  path: ['email'],
 });
 
 export const sendOtpSchema = z.object({
-  phone: z
-    .string()
-    .trim()
-    .regex(/^\+?[0-9]{10,15}$/, 'Phone must be 10-15 digits (optionally with + prefix)'),
+  phone: z.string().trim().min(1, 'Phone or identifier is required'),
 });
 
 export const verifyOtpSchema = z.object({
-  phone: z.string().trim().min(1, 'Phone is required'),
-  code: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit number'),
-  name: z.string().trim().min(1).max(100).optional(), // optional for auto-signup
+  phone: z.string().trim().min(1, 'Phone or identifier is required'),
+  code: z.string().min(4, 'Verification code is required'),
+  name: z.string().trim().min(1).max(100).optional(),
+  role: z.enum(['artisan', 'buyer', 'user', 'admin']).optional(),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;
@@ -36,7 +39,9 @@ export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 export interface PublicUser {
   id: number;
   name: string;
-  phone: string;
+  email: string;
+  username: string;
+  phone?: string;
   role: string;
   language: string;
   createdAt: string;

@@ -8,14 +8,26 @@ import imageRoutes from './routes/image.routes';
 import styleRoutes from './routes/style.routes';
 import marketplaceRoutes from './routes/marketplace.routes';
 import catalogRoutes from './routes/catalog.routes';
+import voiceRoutes from './routes/voice.routes';
+import pricingRoutes from './routes/pricing.routes';
 import adminRoutes from './routes/admin.routes';
 import i18nRoutes from './routes/i18n.routes';
+import productRoutes from './routes/product.routes';
+import orderRoutes from './routes/order.routes';
+import buyerRequestRoutes from './routes/buyer-request.routes';
 
 const app = express();
 
 // ─── Global Middleware ────────────────────────────
-app.use(helmet());
-app.use(cors({ origin: process.env['FRONTEND_URL'] || '*' }));
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(
+  cors({
+    origin: true, // Dynamically allow request origin (Expo Web localhost:8081, mobile apps, emulators)
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -23,12 +35,17 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Routes ──────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api', styleRoutes);   // GET /api/studio-styles (public)
-// Marketplace + catalog routes are mounted BEFORE imageRoutes: imageRoutes has a
+// Marketplace, catalog, voice, and pricing routes are mounted BEFORE imageRoutes: imageRoutes has a
 // blanket router.use(authenticate) that would otherwise 401 every /api/* request
-// before these public routes (storefront, QR, inquiries) get a chance to match.
+// before these public/hybrid routes get a chance to match.
 app.use('/api', marketplaceRoutes);
 app.use('/api', catalogRoutes);
+app.use('/api', voiceRoutes);
+app.use('/api', pricingRoutes);
 app.use('/api', i18nRoutes);
+app.use('/api', productRoutes);
+app.use('/api', orderRoutes);
+app.use('/api', buyerRequestRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', imageRoutes);
 

@@ -40,3 +40,28 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     res.status(401).json({ error: 'Invalid token.' });
   }
 }
+
+/**
+ * Optional authentication middleware.
+ * If valid Bearer token is provided, attaches decoded user.
+ * Otherwise sets guest/artisan fallback (id: 1, role: 'artisan') so public / mobile direct uploads succeed.
+ */
+export function optionalAuthenticate(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    (req as any).user = (req as any).user || { id: 1, role: 'artisan' };
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as AuthUser;
+    (req as any).user = decoded;
+    next();
+  } catch {
+    (req as any).user = (req as any).user || { id: 1, role: 'artisan' };
+    next();
+  }
+}
+

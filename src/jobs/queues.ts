@@ -15,10 +15,12 @@ export interface ImageJobData {
 export const IMAGE_PROCESSING_QUEUE_NAME = 'image-processing';
 
 const defaultJobOptions: JobsOptions = {
-  attempts: 3,
+  // 5 attempts: waits 5s → 10s → 20s → 40s between retries.
+  // Gives transient R2 502/ECONNRESET errors enough time to recover.
+  attempts: 5,
   backoff: {
     type: 'exponential',
-    delay: 2000, // 2s, 4s, 8s
+    delay: 5000, // 5s, 10s, 20s, 40s
   },
   removeOnComplete: {
     count: 1000,
@@ -38,9 +40,9 @@ export const imageProcessingQueue = new Queue<ImageJobData>(
   }
 );
 
-// ---------------------------------------------------------------------------
+
 // Marketplace publish queue ("Publish Everywhere")
-// ---------------------------------------------------------------------------
+
 
 export interface MarketplacePublishJobData {
   productId: number;

@@ -6,7 +6,16 @@ import {
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
+import https from 'https';
 import { env } from '../config/env';
+
+// Keep-alive agent to prevent ECONNRESET on large image uploads
+const keepAliveAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30_000,
+  maxSockets: 50,
+});
 
 // Initialize S3 Client configured for Cloudflare R2
 export const r2Client = new S3Client({
@@ -16,6 +25,14 @@ export const r2Client = new S3Client({
     accessKeyId: env.R2_ACCESS_KEY_ID,
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
   },
+  // 5 attempts with exponential backoff handles transient R2 502/ECONNRESET errors
+  maxAttempts: 5,
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: keepAliveAgent,
+    // 2-minute socket timeout — enough for large studio PNGs
+    requestTimeout: 120_000,
+    connectionTimeout: 10_000,
+  }),
 });
 
 export class R2StorageService {

@@ -3,8 +3,10 @@ import type { Request } from 'express';
 
 const ALLOWED_MIME_TYPES = [
   'image/jpeg',
+  'image/jpg',
   'image/png',
   'image/webp',
+  'application/octet-stream',
 ];
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -17,14 +19,15 @@ const MAX_FILES = 4;
 const storage = multer.memoryStorage();
 
 /**
- * File filter that only accepts JPEG, PNG, and WebP images.
+ * File filter that accepts JPEG, PNG, WebP images and mobile octet-streams.
  */
 function fileFilter(
   _req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ): void {
-  if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+  const isImageExt = /\.(jpg|jpeg|png|webp)$/i.test(file.originalname || '');
+  if (ALLOWED_MIME_TYPES.includes(file.mimetype) || isImageExt) {
     cb(null, true);
   } else {
     cb(new Error(`Invalid file type "${file.mimetype}". Allowed: JPEG, PNG, WebP.`));

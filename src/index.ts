@@ -21,7 +21,7 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`
   ┌──────────────────────────────────────────────┐
   │  ShilpSetu Backend — Product Studio API      │
@@ -30,9 +30,13 @@ app.listen(PORT, () => {
   │  Environment: ${env.NODE_ENV.padEnd(30)}│
   │                                              │
   │  Endpoints:                                  │
-  │  POST /api/image-batches/upload             │
-  │  POST /api/image-batches                    │
-  │  GET  /api/image-batches/:id                │
+  │  [C1] POST /api/image-batches/upload         │
+  │  [C2] POST /api/voice/process                │
+  │  [C2] POST /api/catalog/generate             │
+  │  [C3] POST /api/pricing/estimate             │
+  │  [C4] GET  /api/public/stores/:slug          │
+  │  [C4] POST /api/products/:id/publish         │
+  │  [C5] GET  /api/admin/metrics                │
   │                                              │
   │  Health: GET /health                         │
   └──────────────────────────────────────────────┘
