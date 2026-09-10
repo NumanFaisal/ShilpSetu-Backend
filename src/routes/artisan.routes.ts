@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/auth.middleware';
 const router = Router();
 
 // Every route here requires a signed-in User.
-router.use(authenticate);
+router.use('/artisans', authenticate);
 
 // POST /api/artisans — create the artisan profile (once) for the logged-in user
 router.post('/artisans', artisanController.create);

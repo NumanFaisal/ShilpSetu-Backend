@@ -4,8 +4,8 @@ import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Every route here requires a signed-in User (and an Artisan profile).
-router.use(authenticate);
+// Every route in this router requires an authenticated user.
+router.use('/products', authenticate);
 
 // POST /api/products — create a new draft product
 router.post('/products', productController.create);

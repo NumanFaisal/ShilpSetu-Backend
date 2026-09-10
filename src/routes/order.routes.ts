@@ -4,7 +4,7 @@ import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.use(authenticate);
+router.use('/orders', authenticate);
 
 // GET /api/orders — every order against my products
 router.get('/orders', orderController.listMine);

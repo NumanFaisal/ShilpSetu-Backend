@@ -5,7 +5,7 @@ import { HttpError } from '../lib/http-error';
 
 const router = Router();
 
-router.use(authenticate);
+router.use('/users', authenticate);
 
 // GET /api/users/me — current user + artisan profile (if onboarding is done)
 router.get('/users/me', async (req: Request, res: Response, next: NextFunction) => {
