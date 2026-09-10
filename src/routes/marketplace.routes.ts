@@ -151,13 +151,13 @@ router.post('/marketplaces/:marketplace/disconnect', authenticate, async (req: R
 // Publish & status
 router.post('/products/:id/publish', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { marketplaces } = req.body;
-    if (!Array.isArray(marketplaces) || !marketplaces.length) {
-      throw new HttpError(400, '"marketplaces" must be a non-empty array of marketplace names.');
+    const rawMarketplaces = req.body.marketplaces || req.body.channels;
+    if (!Array.isArray(rawMarketplaces) || !rawMarketplaces.length) {
+      throw new HttpError(400, '"marketplaces" or "channels" must be a non-empty array of marketplace names.');
     }
     const result = await marketplaceService.publishToMarketplaces(
       Number(req.params.id),
-      marketplaces.map((m: string) => m.toUpperCase()) as Marketplace[],
+      rawMarketplaces.map((m: string) => m.toUpperCase()) as Marketplace[],
     );
     res.json(result);
   } catch (err) { next(err); }

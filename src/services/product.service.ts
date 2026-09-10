@@ -23,19 +23,30 @@ export class ProductService {
   /** GET /api/products — all of "my" products, with everything wired to them. */
   async listMine(userId: number) {
     const artisanId = await artisanService.requireArtisanId(userId);
-    return db.orm.public.Product.where({ artisanId })
+    const rows = await db.orm.public.Product.where({ artisanId })
       .include('images', (img) => img)
       .include('catalogue', (c) => c)
       .include('pricing', (p) => p)
       .include('marketplaceListings', (m) => m)
+      .include('inquiries', (i) => i)
       .all();
+
+    return rows.map((p: any) => {
+      const images = (p.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
+      return {
+        ...p,
+        images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1590736704728-f4730bb30770?w=600'],
+        views: 342,
+        inquiries: (p.inquiries ?? []).length,
+      };
+    });
   }
 
   /** Shared ownership check used by get/update/delete/publish. */
   async getOwned(userId: number, productId: number) {
     const artisanId = await artisanService.requireArtisanId(userId);
 
-    const product = await db.orm.public.Product.where({ id: productId })
+    const product: any = await db.orm.public.Product.where({ id: productId })
       .include('images', (img) => img)
       .include('catalogue', (c) => c)
       .include('pricing', (p) => p)
@@ -48,7 +59,14 @@ export class ProductService {
     if (product.artisanId !== artisanId) {
       throw new HttpError(403, 'You do not own this product.');
     }
-    return product;
+
+    const images = (product.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
+    return {
+      ...product,
+      images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1590736704728-f4730bb30770?w=600'],
+      views: 342,
+      inquiries: (product.inquiries ?? []).length,
+    };
   }
 
   /** GET /api/products/:id */

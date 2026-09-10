@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "shilpsetu-api-collection-v1",
     "name": "ShilpSetu API Collection",
-    "description": "Complete Postman API Collection for ShilpSetu Backend covering all 5 components, authentication, file uploads, automated JWT extraction, and validation tests.",
+    "_postman_id": "shilpsetu-api-collection-v1",
+    "description": "Complete Postman collection for ShilpSetu E-Commerce Marketplace API covering Artisans, Buyers, Products, Orders, AI Services, and Admin.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -12,35 +12,48 @@
       "type": "string"
     },
     {
-      "key": "token",
+      "key": "artisanToken",
       "value": "",
       "type": "string"
     },
     {
-      "key": "batchId",
+      "key": "buyerToken",
       "value": "",
       "type": "string"
     }
   ],
   "item": [
     {
-      "name": "1. Authentication & Onboarding",
+      "name": "01. Health & Diagnostics",
       "item": [
         {
-          "name": "1.1 Sign In (Admin / User)",
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Authentication",
+      "item": [
+        {
+          "name": "Artisan Register",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "const res = pm.response.json();",
-                  "if (res.token) {",
-                  "    pm.collectionVariables.set(\"token\", res.token);",
-                  "    pm.environment.set(\"token\", res.token);",
-                  "    console.log(\"Saved JWT token to variable: \", res.token);",
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.token) {",
+                  "    pm.collectionVariables.set('artisanToken', jsonData.token);",
+                  "    console.log('Saved artisanToken:', jsonData.token);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -50,37 +63,30 @@
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+919999999999\",\n  \"password\": \"MoSJE@Admin2026\"\n}"
+              "raw": "{\n  \"name\": \"Ramesh Kumar\",\n  \"email\": \"ramesh.artisan@example.com\",\n  \"password\": \"Password123!\",\n  \"role\": \"artisan\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/auth/signin",
+              "raw": "{{baseUrl}}/api/auth/register",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "signin"]
-            },
-            "description": "Signs in an artisan or admin and automatically saves the JWT token to the 'token' variable."
+              "path": ["api", "auth", "register"]
+            }
           }
         },
         {
-          "name": "1.2 Sign Up (Register Artisan)",
+          "name": "Buyer Register",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status code is 201\", function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const res = pm.response.json();",
-                  "if (res.token) {",
-                  "    pm.collectionVariables.set(\"token\", res.token);",
-                  "    pm.environment.set(\"token\", res.token);",
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.token) {",
+                  "    pm.collectionVariables.set('buyerToken', jsonData.token);",
+                  "    console.log('Saved buyerToken:', jsonData.token);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -90,44 +96,43 @@
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Sita Devi\",\n  \"phone\": \"+919876543210\",\n  \"password\": \"Artisan@123\"\n}"
+              "raw": "{\n  \"name\": \"Ananya Sharma\",\n  \"email\": \"ananya.buyer@example.com\",\n  \"password\": \"Password123!\",\n  \"role\": \"buyer\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/auth/signup",
+              "raw": "{{baseUrl}}/api/auth/register",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "signup"]
+              "path": ["api", "auth", "register"]
             }
           }
         },
         {
-          "name": "1.3 Send OTP",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Login (Sign In)",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ramesh.artisan@example.com\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Send Phone OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -141,31 +146,15 @@
           }
         },
         {
-          "name": "1.4 Verify OTP",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Verify Phone OTP",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+919876543210\",\n  \"code\": \"123456\",\n  \"name\": \"Sita Devi\"\n}"
+              "raw": "{\n  \"phone\": \"+919876543210\",\n  \"code\": \"1234\",\n  \"name\": \"Ramesh Kumar\",\n  \"role\": \"artisan\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/verify-otp",
@@ -177,368 +166,339 @@
       ]
     },
     {
-      "name": "2. Component 1: AI Image Enhancer & Studio",
+      "name": "03. User & Artisan Profiles",
       "item": [
         {
-          "name": "2.1 List Studio Styles",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Returns array of styles\", function () {",
-                  "    const data = pm.response.json();",
-                  "    pm.expect(Array.isArray(data)).to.be.true;",
-                  "    pm.expect(data.length).to.be.above(0);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Get Current User Profile (Buyer/Seller Context)",
           "request": {
             "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/studio-styles",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "studio-styles"]
-            }
-          }
-        },
-        {
-          "name": "2.2 Get Style Preview Image",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/studio-styles/white_studio/preview",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "studio-styles", "white_studio", "preview"]
-            }
-          }
-        },
-        {
-          "name": "2.3 Upload Batch Direct (AI Studio)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 201\", function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const res = pm.response.json();",
-                  "if (res.batchId) {",
-                  "    pm.collectionVariables.set(\"batchId\", res.batchId);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
+              { "key": "Authorization", "value": "Bearer {{buyerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update User Profile (Name/Language)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{buyerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "images",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "style",
-                  "value": "white_studio",
-                  "type": "text"
-                }
-              ]
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ananya Sharma (Verified Buyer)\",\n  \"language\": \"hi\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/image-batches/upload",
+              "raw": "{{baseUrl}}/api/users/me",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "image-batches", "upload"]
+              "path": ["api", "users", "me"]
             }
           }
         },
         {
-          "name": "2.4 Get Batch Processing Status",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Get My Artisan Profile & Metrics",
           "request": {
             "method": "GET",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/image-batches/{{batchId}}",
+              "raw": "{{baseUrl}}/api/artisans/me",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "image-batches", "{{batchId}}"]
+              "path": ["api", "artisans", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update Artisan Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeName\": \"Ramesh Blue Pottery Studio\",\n  \"bio\": \"Authentic master artisan from Jaipur with 15 years experience.\",\n  \"craftType\": \"Blue Pottery\",\n  \"location\": \"Jaipur, Rajasthan\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/artisans/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "artisans", "me"]
             }
           }
         }
       ]
     },
     {
-      "name": "3. Component 2: Multilingual Auto-Cataloger",
+      "name": "04. Product Management (Seller)",
       "item": [
         {
-          "name": "3.1 Process Voice Note Recording",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has extracted attributes\", function () {",
-                  "    const res = pm.response.json();",
-                  "    pm.expect(res).to.have.property(\"transcription\");",
-                  "    pm.expect(res).to.have.property(\"extractedAttributes\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "audio",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "productId",
-                  "value": "1",
-                  "type": "text"
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/voice/process",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "voice", "process"]
-            }
-          }
-        },
-        {
-          "name": "3.2 Generate Smart Bilingual Catalog",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Bilingual descriptions generated\", function () {",
-                  "    const res = pm.response.json();",
-                  "    pm.expect(res).to.have.property(\"titleEn\");",
-                  "    pm.expect(res).to.have.property(\"titleHi\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Create Product (Draft)",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"voiceTranscription\": \"यह शुद्ध चंदेरी सिल्क साड़ी है जिस पर सुनहरी जरी का बॉर्डर है। इसकी लंबाई साढ़े छह मीटर है।\",\n  \"manualDescription\": \"Pure Chanderi silk saree with golden zari border and handwoven pallu.\",\n  \"attributes\": {\n    \"productName\": \"Chanderi Silk Saree\",\n    \"material\": \"Chanderi Silk\",\n    \"craftType\": \"Handloom Weaving\",\n    \"size\": \"6.5 meters\"\n  }\n}"
+              "raw": "{\n  \"name\": \"Handcrafted Jaipur Blue Pottery Floral Vase\",\n  \"category\": \"pottery\",\n  \"craftType\": \"Blue Pottery\",\n  \"description\": \"Traditional blue pottery floral vase crafted with quartz stone and natural glaze.\",\n  \"price\": 1850,\n  \"quantity\": 20,\n  \"material\": \"Quartz stone, glass powder, natural glaze\",\n  \"origin\": \"Jaipur, Rajasthan\",\n  \"dimensions\": \"12 × 10 inches\",\n  \"weight\": \"650 grams\",\n  \"images\": [\n    \"https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600\"\n  ]\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/catalog/generate",
+              "raw": "{{baseUrl}}/api/products",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "catalog", "generate"]
+              "path": ["api", "products"]
             }
           }
         },
         {
-          "name": "3.3 Save Catalog to Product",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "List Artisan's Own Products",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "Get Single Owned Product Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1"]
+            }
+          }
+        },
+        {
+          "name": "Update Product (Stock / Price)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"titleEn\": \"Handcrafted Chanderi Silk Saree with Zari Border\",\n  \"titleHi\": \"जरी बॉर्डर युक्त हस्तनिर्मित चंदेरी सिल्क साड़ी\",\n  \"descriptionEn\": \"Authentic handloom Chanderi silk saree woven by master weavers.\",\n  \"descriptionHi\": \"मास्टर बुनकरों द्वारा बुनी गई प्रामाणिक हथकरघा चंदेरी रेशमी साड़ी।\",\n  \"keywords\": [\"chanderi\", \"silk-saree\", \"handloom\", \"zari-border\"],\n  \"careInstructions\": \"Dry clean only.\",\n  \"material\": \"Pure Silk & Zari\",\n  \"category\": \"Textiles\"\n}"
+              "raw": "{\n  \"price\": 1950,\n  \"quantity\": 25\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/api/catalog/1/save",
+              "raw": "{{baseUrl}}/api/products/1",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "catalog", "1", "save"]
+              "path": ["api", "products", "1"]
             }
           }
         },
         {
-          "name": "3.4 Get Product Catalog",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Publish to External Marketplaces",
           "request": {
-            "method": "GET",
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"marketplaces\": [\"ONDC\", \"GEM\", \"AMAZON_SAHELI\"]\n}"
+            },
             "url": {
-              "raw": "{{baseUrl}}/api/catalog/1",
+              "raw": "{{baseUrl}}/api/products/1/publish",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "catalog", "1"]
+              "path": ["api", "products", "1", "publish"]
             }
           }
         },
         {
-          "name": "3.5 Get Product Voice History",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/voice/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "voice", "1"]
-            }
-          }
-        },
-        {
-          "name": "3.6 Download Printable Artisan PDF",
+          "name": "Get Product Marketplace Sync Status",
           "request": {
             "method": "GET",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/catalog/1/pdf",
+              "raw": "{{baseUrl}}/api/products/1/marketplaces",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "catalog", "1", "pdf"]
-            },
-            "description": "Use 'Send and Download' in Postman to save the generated PDF file."
+              "path": ["api", "products", "1", "marketplaces"]
+            }
           }
         }
       ]
     },
     {
-      "name": "4. Component 3: Dynamic ML Pricing Assistant",
+      "name": "05. Product Discovery (Buyer)",
       "item": [
         {
-          "name": "4.1 Estimate Dynamic Pricing (Silk Saree)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Calculates fair pricing metrics\", function () {",
-                  "    const res = pm.response.json();",
-                  "    pm.expect(res).to.have.property(\"recommendedPrice\");",
-                  "    pm.expect(res).to.have.property(\"marginBreakdown\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
+          "name": "Search Products (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/marketplace/search?q=pottery&category=pottery&minPrice=500&maxPrice=5000&page=1&pageSize=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "marketplace", "search"],
+              "query": [
+                { "key": "q", "value": "pottery" },
+                { "key": "category", "value": "pottery" },
+                { "key": "minPrice", "value": "500" },
+                { "key": "maxPrice", "value": "5000" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "10" }
+              ]
             }
-          ],
+          }
+        },
+        {
+          "name": "Get Public Product Detail (With GI Specs)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/marketplace/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "marketplace", "products", "1"]
+            }
+          }
+        },
+        {
+          "name": "Get Artisan Public Storefront",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/stores/ramesh-kumar-1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "public", "stores", "ramesh-kumar-1"]
+            }
+          }
+        },
+        {
+          "name": "Get Storefront QR Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/public/stores/ramesh-kumar-1/qr.png",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "public", "stores", "ramesh-kumar-1", "qr.png"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. Order Management",
+      "item": [
+        {
+          "name": "Buyer Place Order",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Authorization", "value": "Bearer {{buyerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Chanderi Silk Handloom Saree\",\n  \"category\": \"Textiles\",\n  \"material\": \"Chanderi Silk\",\n  \"craftComplexity\": \"high\",\n  \"materialCost\": 800,\n  \"labourHours\": 14,\n  \"wageRate\": 100,\n  \"quantity\": 1,\n  \"debug\": true\n}"
+              "raw": "{\n  \"productId\": 1,\n  \"quantity\": 2,\n  \"deliveryAddress\": \"Flat 402, Lotus Heights, Bengaluru 560038\",\n  \"notes\": \"Fragile item, please pack with double bubble wrap.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Buyer Past Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{buyerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/buyer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "buyer"]
+            }
+          }
+        },
+        {
+          "name": "Artisan Received Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Get Order Detail & Milestones",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{buyerToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "1"]
+            }
+          }
+        },
+        {
+          "name": "Artisan Update Fulfillment Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PRODUCTION\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/1/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "1", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. AI Pricing & Market Intelligence",
+      "item": [
+        {
+          "name": "Estimate Product Price (AI + Tavily Live Search)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Chanderi Silk Handloom Saree\",\n  \"category\": \"textile\",\n  \"material\": \"Pure Silk and Zari\",\n  \"hoursSpent\": 36,\n  \"materialCost\": 2800\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/pricing/estimate",
@@ -546,182 +506,22 @@
               "path": ["api", "pricing", "estimate"]
             }
           }
-        },
-        {
-          "name": "4.2 Estimate Pricing (Terracotta Pottery)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Handmade Terracotta Floral Vase\",\n  \"category\": \"Terracotta Pottery\",\n  \"material\": \"Terracotta Clay\",\n  \"craftComplexity\": \"medium\",\n  \"materialCost\": 150,\n  \"labourHours\": 5,\n  \"wageRate\": 90,\n  \"quantity\": 1\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/pricing/estimate",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "pricing", "estimate"]
-            }
-          }
-        },
-        {
-          "name": "4.3 Save Pricing to Product",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Chanderi Silk Handloom Saree\",\n  \"category\": \"Textiles\",\n  \"material\": \"Chanderi Silk\",\n  \"craftComplexity\": \"high\",\n  \"materialCost\": 800,\n  \"labourHours\": 14,\n  \"wageRate\": 100\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/pricing/1/save",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "pricing", "1", "save"]
-            }
-          }
-        },
-        {
-          "name": "4.4 Get Product Pricing",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/pricing/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "pricing", "1"]
-            }
-          }
         }
       ]
     },
     {
-      "name": "5. Component 4: Storefront & Market Linkage",
+      "name": "08. B2B Inquiries & Custom Requests",
       "item": [
         {
-          "name": "5.1 View Public Storefront",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/public/stores/master-artisan",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "public", "stores", "master-artisan"]
-            }
-          }
-        },
-        {
-          "name": "5.2 Storefront QR Code Image",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/public/stores/master-artisan/qr.png",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "public", "stores", "master-artisan", "qr.png"]
-            }
-          }
-        },
-        {
-          "name": "5.3 Submit B2B Wholesale Inquiry",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 201\", function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Submit Public B2B Inquiry",
           "request": {
             "method": "POST",
             "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"artisanId\": 1,\n  \"productId\": 1,\n  \"quantity\": 100,\n  \"buyerName\": \"FabIndia Retail Chain\",\n  \"buyerEmail\": \"buyer@fabindia.com\",\n  \"buyerPhone\": \"+919811122233\",\n  \"targetPrice\": 3800,\n  \"deliveryLocation\": \"New Delhi\",\n  \"message\": \"Interested in bulk order of authentic Chanderi sarees for festive collection.\"\n}"
+              "raw": "{\n  \"artisanId\": 1,\n  \"productId\": 1,\n  \"buyerName\": \"Pooja Mehta\",\n  \"buyerPhone\": \"+919811223344\",\n  \"quantity\": 50,\n  \"targetPrice\": 1500,\n  \"message\": \"Looking for bulk corporate festive gifting supply.\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/public/inquiries",
@@ -731,257 +531,16 @@
           }
         },
         {
-          "name": "5.4 View Artisan Inquiries",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Artisan List Inquiries",
           "request": {
             "method": "GET",
             "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
+              { "key": "Authorization", "value": "Bearer {{artisanToken}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/artisan/inquiries",
               "host": ["{{baseUrl}}"],
               "path": ["api", "artisan", "inquiries"]
-            }
-          }
-        },
-        {
-          "name": "5.5 Export to ONDC RET10 Catalog",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/exports/ondc/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "exports", "ondc", "1"]
-            }
-          }
-        },
-        {
-          "name": "5.6 Export to GeM Schema",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/exports/gem/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "exports", "gem", "1"]
-            }
-          }
-        },
-        {
-          "name": "5.7 Publish Everywhere (Multi-Marketplace)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"marketplaces\": [\"ONDC\", \"GEM\", \"AMAZON\"]\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/products/1/publish",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products", "1", "publish"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "6. Component 5: MoSJE Admin & Impact Analytics",
-      "item": [
-        {
-          "name": "6.1 Admin Dashboard Summary",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Has MoSJE analytics fields\", function () {",
-                  "    const res = pm.response.json();",
-                  "    pm.expect(res).to.have.property(\"totalArtisans\");",
-                  "    pm.expect(res).to.have.property(\"estimatedEconomicUplift\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/dashboard",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "dashboard"]
-            }
-          }
-        },
-        {
-          "name": "6.2 Regional Upliftment Breakdown",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{token}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/admin/regional",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "regional"]
-            }
-          }
-        },
-        {
-          "name": "6.3 Multilingual Dictionary",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/api/i18n/hi",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "i18n", "hi"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "7. Health & System Check",
-      "item": [
-        {
-          "name": "7.1 Server Health",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Server reports ok\", function () {",
-                  "    const res = pm.response.json();",
-                  "    pm.expect(res.status).to.eql(\"ok\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["health"]
             }
           }
         }

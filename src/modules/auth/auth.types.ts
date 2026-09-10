@@ -1,11 +1,16 @@
 import { z } from 'zod';
 
+const roleSchema = z.preprocess(
+  (val) => (typeof val === 'string' ? val.toLowerCase() : val),
+  z.enum(['artisan', 'buyer', 'user', 'admin'])
+);
+
 export const signupSchema = z.object({
   name: z.string().trim().min(1, 'Full name is required').max(100, 'Name is too long'),
   email: z.string().trim().min(3, 'Email or username is required').max(100),
   username: z.string().trim().optional(),
   password: z.string().min(6, 'Password must be at least 6 characters').max(72, 'Password is too long'),
-  role: z.enum(['artisan', 'buyer', 'user', 'admin']).default('artisan').optional(),
+  role: roleSchema.default('artisan').optional(),
 });
 
 export const signinSchema = z.object({
@@ -14,7 +19,7 @@ export const signinSchema = z.object({
   identifier: z.string().trim().optional(),
   phone: z.string().trim().optional(), // backward compat
   password: z.string().min(1, 'Password is required'),
-  role: z.enum(['artisan', 'buyer', 'user', 'admin']).optional(),
+  role: roleSchema.optional(),
 }).refine(data => !!(data.email || data.username || data.identifier || data.phone), {
   message: 'Email or username is required',
   path: ['email'],
@@ -28,7 +33,7 @@ export const verifyOtpSchema = z.object({
   phone: z.string().trim().min(1, 'Phone or identifier is required'),
   code: z.string().min(4, 'Verification code is required'),
   name: z.string().trim().min(1).max(100).optional(),
-  role: z.enum(['artisan', 'buyer', 'user', 'admin']).optional(),
+  role: roleSchema.optional(),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

@@ -16,3 +16,26 @@ export function toInstant(value: string | number | Date): Temporal.Instant {
   const ms = typeof value === 'number' ? value : new Date(value).getTime();
   return Temporal.Instant.fromEpochMilliseconds(ms);
 }
+
+/** Convert a Temporal.Instant or raw date value into a JavaScript Date safely. */
+export function instantToDate(value: any): Date {
+  if (!value) return new Date();
+  if (value instanceof Date) return value;
+  if (typeof value?.epochMilliseconds === 'number') {
+    return new Date(value.epochMilliseconds);
+  }
+  try {
+    return new Date(value.toString());
+  } catch {
+    return new Date();
+  }
+}
+
+/** Convert a Temporal.Instant or raw date value into an ISO string. */
+export function instantToString(value: any): string {
+  if (!value) return new Date().toISOString();
+  if (typeof value?.toString === 'function') {
+    return value.toString();
+  }
+  return String(value);
+}
