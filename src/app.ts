@@ -15,6 +15,9 @@ import i18nRoutes from './routes/i18n.routes';
 import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
 import buyerRequestRoutes from './routes/buyer-request.routes';
+// NEW: artisan onboarding + user profile
+import artisanRoutes from './routes/artisan.routes';
+import userRoutes from './routes/user.routes';
 
 const app = express();
 
@@ -35,16 +38,19 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Routes ──────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api', styleRoutes);   // GET /api/studio-styles (public)
-// Marketplace, catalog, voice, and pricing routes are mounted BEFORE imageRoutes: imageRoutes has a
-// blanket router.use(authenticate) that would otherwise 401 every /api/* request
-// before these public/hybrid routes get a chance to match.
+// All route files are mounted BEFORE imageRoutes: imageRoutes has a blanket
+// router.use(authenticate) that would otherwise 401 every /api/* request
+// that reaches it before these routes get a chance to match. Any new route
+// file should go above imageRoutes, not below it.
 app.use('/api', marketplaceRoutes);
 app.use('/api', catalogRoutes);
 app.use('/api', voiceRoutes);
 app.use('/api', pricingRoutes);
 app.use('/api', i18nRoutes);
+app.use('/api', artisanRoutes);
 app.use('/api', productRoutes);
 app.use('/api', orderRoutes);
+app.use('/api', userRoutes);
 app.use('/api', buyerRequestRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', imageRoutes);

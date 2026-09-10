@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { authenticate } from '../middleware/auth.middleware';
 import { marketplaceService } from '../services/marketplace.service';
+import { artisanService } from '../services/artisan.service';
 import { isMarketplace } from '../modules/marketplace/marketplace.registry';
 import { HttpError } from '../lib/http-error';
 import type { Marketplace } from '../modules/marketplace/marketplace.types';
@@ -8,19 +9,48 @@ import type { Marketplace } from '../modules/marketplace/marketplace.types';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// Public storefront routes (no auth)
+// Public storefront + discovery routes (no auth)
 // ---------------------------------------------------------------------------
+
+// NEW — cross-store product search/browse for buyers.
+// GET /api/marketplace/search?q=&category=&craftType=&state=&minPrice=&maxPrice=&page=&pageSize=
+router.get('/marketplace/search', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { q, category, craftType, state, minPrice, maxPrice, page, pageSize } = req.query;
+    // Build params without undefined values to satisfy exactOptionalPropertyTypes
+    const params: Parameters<typeof marketplaceService.searchProducts>[0] = {};
+    if (typeof q === 'string') params.q = q;
+    if (typeof category === 'string') params.category = category;
+    if (typeof craftType === 'string') params.craftType = craftType;
+    if (typeof state === 'string') params.state = state;
+    if (minPrice) params.minPrice = Number(minPrice);
+    if (maxPrice) params.maxPrice = Number(maxPrice);
+    if (page) params.page = Number(page);
+    if (pageSize) params.pageSize = Number(pageSize);
+    const results = await marketplaceService.searchProducts(params);
+    res.json(results);
+  } catch (err) { next(err); }
+});
+
+// NEW — single published product, independent of which artisan/storefront it's on.
+// GET /api/marketplace/products/:id
+router.get('/marketplace/products/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const product = await marketplaceService.getPublicProduct(Number(req.params['id'] as string));
+    res.json(product);
+  } catch (err) { next(err); }
+});
 
 router.get('/public/stores/:slug', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = await marketplaceService.getStorefront(req.params.slug);
+    const data = await marketplaceService.getStorefront(req.params['slug'] as string);
     res.json(data);
   } catch (err) { next(err); }
 });
 
 router.get('/public/stores/:slug/qr.png', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const buffer = await marketplaceService.getStorefrontQr(req.params.slug);
+    const buffer = await marketplaceService.getStorefrontQr(req.params['slug'] as string);
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.send(buffer);
@@ -66,9 +96,13 @@ router.post('/public/inquiries', async (req: Request, res: Response, next: NextF
 // Authenticated artisan routes
 // ---------------------------------------------------------------------------
 
+// FIXED: was calling listInquiries(req.user!.id) — the User id, not the
+// Artisan id these rows are actually keyed on. Now resolves the artisan
+// profile first, same as the new product/order/artisan routes do.
 router.get('/artisan/inquiries', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const inquiries = await marketplaceService.listInquiries(req.user!.id);
+    const artisanId = await artisanService.requireArtisanId((req as any).user.id);
+    const inquiries = await marketplaceService.listInquiries(artisanId);
     res.json(inquiries);
   } catch (err) { next(err); }
 });
@@ -85,27 +119,31 @@ router.patch('/inquiries/:id/status', authenticate, async (req: Request, res: Re
 });
 
 // Marketplace connections
+// FIXED: same userId-vs-artisanId issue as /artisan/inquiries above.
 router.get('/marketplaces/connections', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const connections = await marketplaceService.getConnections(req.user!.id);
+    const artisanId = await artisanService.requireArtisanId((req as any).user.id);
+    const connections = await marketplaceService.getConnections(artisanId);
     res.json(connections);
   } catch (err) { next(err); }
 });
 
 router.post('/marketplaces/:marketplace/connect', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const mp = req.params.marketplace.toUpperCase();
+    const mp = (req.params['marketplace'] as string).toUpperCase();
     if (!isMarketplace(mp)) throw new HttpError(400, `Unknown marketplace: ${mp}`);
-    const result = await marketplaceService.connect(req.user!.id, mp as Marketplace, req.body);
+    const artisanId = await artisanService.requireArtisanId((req as any).user.id);
+    const result = await marketplaceService.connect(artisanId, mp as Marketplace, req.body);
     res.json(result);
   } catch (err) { next(err); }
 });
 
 router.post('/marketplaces/:marketplace/disconnect', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const mp = req.params.marketplace.toUpperCase();
+    const mp = (req.params['marketplace'] as string).toUpperCase();
     if (!isMarketplace(mp)) throw new HttpError(400, `Unknown marketplace: ${mp}`);
-    const result = await marketplaceService.disconnect(req.user!.id, mp as Marketplace);
+    const artisanId = await artisanService.requireArtisanId((req as any).user.id);
+    const result = await marketplaceService.disconnect(artisanId, mp as Marketplace);
     res.json(result);
   } catch (err) { next(err); }
 });

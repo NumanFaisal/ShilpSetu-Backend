@@ -8,6 +8,8 @@ import { marketplacePublishQueue } from '../jobs/queues';
 import { getAdapter, isMarketplace } from '../modules/marketplace/marketplace.registry';
 import type { Marketplace, MarketplaceProduct } from '../modules/marketplace/marketplace.types';
 import { env } from '../config/env';
+// NEW: converts an accepted inquiry into a real Order (see updateInquiryStatus below).
+import { orderService } from './order.service';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -205,11 +207,119 @@ class MarketplaceService {
     return db.orm.public.B2BInquiry.where({ artisanId }).all();
   }
 
+  /**
+   * UPDATED: accepting an inquiry now actually creates the Order the app's
+   * own user-journey diagram promises ("Accept / Reject / Negotiate → Order").
+   * Previously this only flipped the inquiry's status and nothing else.
+   */
   async updateInquiryStatus(id: number, status: 'ACCEPTED' | 'DECLINED' | 'COMPLETED') {
     const existing = await db.orm.public.B2BInquiry.where({ id }).all().first();
     if (!existing) throw new HttpError(404, 'Inquiry not found.');
+
     await db.orm.public.B2BInquiry.where({ id }).update({ status });
-    return { id, status };
+
+    let order = null;
+    if (status === 'ACCEPTED') {
+      order = await orderService.createFromInquiry({
+        id: existing.id,
+        buyerId: existing.buyerId,
+        artisanId: existing.artisanId,
+        productId: existing.productId,
+        quantity: existing.quantity,
+        targetPrice: existing.targetPrice,
+      });
+    }
+
+    return { id, status, order };
+  }
+
+  // ------------------------------------------------------------------
+  // Buyer Discovery (search + single product)
+  // ------------------------------------------------------------------
+
+  /**
+   * Cross-store product search for buyers.
+   * NOTE: category/state/price filtering is done in-memory after fetching all
+   * published products, because the ORM's .where() only supports exact-match
+   * equality. If the query builder gains range/contains support in future,
+   * push those filters into the DB query instead for better perf at scale.
+   */
+  async searchProducts(params: {
+    q?: string;
+    category?: string;
+    craftType?: string;
+    state?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const allPublished = await db.orm.public.Product.where({ status: 'published' })
+      .include('images', (img) => img)
+      .include('catalogue', (c) => c)
+      .include('pricing', (p) => p)
+      .all();
+
+    let filtered = allPublished;
+
+    if (params.q) {
+      const q = params.q.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q)) ||
+          (p.material && p.material.toLowerCase().includes(q)) ||
+          (p.category && p.category.toLowerCase().includes(q)),
+      );
+    }
+    if (params.category) {
+      const cat = params.category.toLowerCase();
+      filtered = filtered.filter((p) => p.category?.toLowerCase() === cat);
+    }
+    if (params.minPrice !== undefined) {
+      filtered = filtered.filter((p) => (p.price ?? 0) >= params.minPrice!);
+    }
+    if (params.maxPrice !== undefined) {
+      filtered = filtered.filter((p) => (p.price ?? 0) <= params.maxPrice!);
+    }
+    if (params.craftType || params.state) {
+      // Need artisan details — resolve lazily only for the filtered subset
+      const artisanIds = [...new Set(filtered.map((p) => p.artisanId))];
+      const artisans = await Promise.all(
+        artisanIds.map((id) => db.orm.public.Artisan.where({ id }).all().first()),
+      );
+      const artisanMap = new Map(artisans.filter(Boolean).map((a) => [a!.id, a!]));
+
+      if (params.craftType) {
+        const ct = params.craftType.toLowerCase();
+        filtered = filtered.filter((p) => artisanMap.get(p.artisanId)?.craftType?.toLowerCase() === ct);
+      }
+      if (params.state) {
+        const st = params.state.toLowerCase();
+        filtered = filtered.filter((p) => artisanMap.get(p.artisanId)?.state?.toLowerCase() === st);
+      }
+    }
+
+    // Pagination
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+    const total = filtered.length;
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+    const decorated = await Promise.all(items.map(decorateProduct));
+    return { total, page, pageSize, items: decorated };
+  }
+
+  /** Single published product viewable by any buyer. */
+  async getPublicProduct(productId: number) {
+    const product = await db.orm.public.Product.where({ id: productId, status: 'published' })
+      .include('images', (img) => img)
+      .include('catalogue', (c) => c)
+      .include('pricing', (p) => p)
+      .all()
+      .first();
+    if (!product) throw new HttpError(404, 'Product not found or not yet published.');
+    return decorateProduct(product);
   }
 
   // ------------------------------------------------------------------
