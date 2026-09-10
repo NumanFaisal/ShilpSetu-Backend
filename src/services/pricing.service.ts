@@ -1,3 +1,4 @@
+import https from 'https';
 import { db } from '../prisma/db';
 import { env } from '../config/env';
 import { llmService } from '../ai/llm';
@@ -54,6 +55,7 @@ export interface PricingEstimateResult {
   marginBreakdown: MarginBreakdown;
   marketplaceBreakdown: MarketplacePricePoint[];
   sources: PriceSource[];
+  pricingSource: 'live_search' | 'benchmark_fallback';
   debug?: any;
   pricingId?: number;
 }
@@ -143,25 +145,65 @@ export class PricingService {
     const key = env.TAVILY_API_KEY || process.env['TAVILY_API_KEY'];
     if (!key) return [];
 
-    try {
-      const res = await fetch('https://api.tavily.com/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_key: key,
-          query,
-          search_depth: 'basic',
-          max_results: 6,
-          include_domains: domains,
-        }),
+    const doRequest = (): Promise<any[]> => {
+      const body = JSON.stringify({
+        api_key: key,
+        query,
+        search_depth: 'basic',
+        max_results: 15,
+        include_domains: domains,
       });
 
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.results || [];
-    } catch {
-      return [];
+      return new Promise((resolve) => {
+        const req = https.request('https://api.tavily.com/search', {
+          method: 'POST',
+          agent: false,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'Connection': 'close',
+            'User-Agent': 'ShilpSetu/1.0',
+          },
+          timeout: 25000,
+        }, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              if (res.statusCode !== 200) {
+                console.warn(`[PricingService] Tavily search API returned HTTP ${res.statusCode}: ${data.slice(0, 200)}`);
+                return resolve([]);
+              }
+              const parsed = JSON.parse(data);
+              resolve(parsed.results || []);
+            } catch {
+              resolve([]);
+            }
+          });
+        });
+
+        req.on('error', (err) => {
+          console.warn(`[PricingService] Tavily search error: ${err?.message || err}`);
+          resolve([]);
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          resolve([]);
+        });
+
+        req.write(body);
+        req.end();
+      });
+    };
+
+    let results = await doRequest();
+    if (!results.length) {
+      // Retry once after brief pause to accommodate rate limits or socket resets
+      await new Promise((r) => setTimeout(r, 1200));
+      results = await doRequest();
     }
+    return results;
   }
 
   /**
@@ -169,12 +211,12 @@ export class PricingService {
    */
   private extractPrices(text: string): number[] {
     const re = /(?:₹|Rs\.?\s*|INR\s*|price[:\s]*)\s?(\d[\d,]*(?:\.\d+)?)/gi;
-    const promoRe = /\b(cashback|discount|off|save|emi|card|deal|offer|was)\b/i;
+    const promoRe = /\b(cashback|emi|card discount)\b/i;
     const found = new Set<number>();
     let m;
     while ((m = re.exec(text)) !== null) {
       const n = Math.round(parseFloat(m[1].replace(/,/g, '')));
-      const ctx = text.slice(Math.max(0, m.index - 35), m.index + m[0].length + 45);
+      const ctx = text.slice(Math.max(0, m.index - 20), m.index + m[0].length + 20);
       if (promoRe.test(ctx)) continue;
       if (Number.isFinite(n) && n > 99 && n < 100000) found.add(n);
     }
@@ -185,6 +227,10 @@ export class PricingService {
    * Estimate dynamic pricing with multi-marketplace benchmark range and margin breakdown.
    */
   async estimatePricing(input: PricingEstimateInput): Promise<PricingEstimateResult> {
+    if (!env.TAVILY_API_KEY && !process.env['TAVILY_API_KEY']) {
+      console.warn('[PricingService] TAVILY_API_KEY is missing. Live market pricing search is disabled; falling back to static benchmark database.');
+    }
+
     const matCost = Math.max(0, Number(input.materialCost) || 0);
     const hours = Math.max(0, Number(input.labourHours) || 0);
     const wageRate = Math.max(50, Number(input.wageRate) || 100); // Default fair wage: ₹100/hr
@@ -202,9 +248,21 @@ export class PricingService {
       .join(' ')
       .toLowerCase();
 
+    // Sort entries by key length descending so more specific craft terms (e.g. 'chanderi', 'bluepottery', 'carving')
+    // are checked before shorter/more generic ones (e.g. 'silk', 'pottery', 'wood').
+    // Without descending sort, object-insertion order causes 'Chanderi Silk Saree' to match 'silk' first.
+    // We also exclude 'handicraft' from specific scanning since it serves as the ultimate fallback.
+    const sortedBenchmarks = Object.entries(CRAFT_BENCHMARKS)
+      .filter(([key]) => key !== 'handicraft')
+      .sort(([keyA], [keyB]) => keyB.length - keyA.length);
+
+    const compactKey = craftKey.replace(/\s+/g, '');
     let benchmark = CRAFT_BENCHMARKS['handicraft'];
-    for (const [key, bm] of Object.entries(CRAFT_BENCHMARKS)) {
-      if (craftKey.includes(key)) {
+
+    for (const [key, bm] of sortedBenchmarks) {
+      // Word boundary regex prevents partial token matches (e.g. "wood" matching inside unrelated words like "plywood")
+      const wordRegex = new RegExp(`\\b${key}\\b`, 'i');
+      if (wordRegex.test(craftKey) || compactKey.includes(key)) {
         benchmark = bm;
         break;
       }
@@ -217,28 +275,37 @@ export class PricingService {
     const coreQuery = `${input.name || input.category || 'Indian handicraft'} price in India`;
 
     if (env.TAVILY_API_KEY || process.env['TAVILY_API_KEY']) {
-      await Promise.all(
-        MARKETPLACES.map(async (mp) => {
-          const results = await this.searchTavily(coreQuery, mp.domains);
-          for (const r of results) {
-            const prices = this.extractPrices(`${r.title || ''} ${r.content || ''}`);
-            for (const p of prices) {
-              allPricePoints.push({ marketplace: mp.id, price: p, title: r.title, url: r.url });
-            }
-            if (prices.length) {
-              sources.push({ title: r.title, url: r.url, marketplace: mp.id, extractedPrice: prices[0] });
-            }
-          }
-        })
-      );
+      const allDomains = MARKETPLACES.flatMap((mp) => mp.domains);
+      const results = await this.searchTavily(coreQuery, allDomains);
+
+      const resolveMarketplace = (url: string = '') => {
+        const lower = url.toLowerCase();
+        for (const mp of MARKETPLACES) {
+          if (mp.domains.some((d) => lower.includes(d))) return mp.id;
+        }
+        return 'Online';
+      };
+
+      for (const r of results) {
+        const mpName = resolveMarketplace(r.url);
+        const prices = this.extractPrices(`${r.title || ''} ${r.content || ''}`);
+        for (const p of prices) {
+          allPricePoints.push({ marketplace: mpName, price: p, title: r.title, url: r.url });
+        }
+        if (prices.length) {
+          sources.push({ title: r.title, url: r.url, marketplace: mpName, extractedPrice: prices[0] });
+        }
+      }
     }
 
     // 4. Calculate market statistics (combining live search with benchmark matrix)
     let marketMin = benchmark.min;
     let marketMax = benchmark.max;
     let medianPrice = benchmark.median;
+    const pricingSource: 'live_search' | 'benchmark_fallback' =
+      allPricePoints.length >= 3 ? 'live_search' : 'benchmark_fallback';
 
-    if (allPricePoints.length >= 3) {
+    if (pricingSource === 'live_search') {
       const sortedPrices = allPricePoints.map((i) => i.price).sort((a, b) => a - b);
       const med = sortedPrices[Math.floor(sortedPrices.length / 2)];
       // Outlier filtering
@@ -368,6 +435,7 @@ export class PricingService {
       marginBreakdown,
       marketplaceBreakdown,
       sources,
+      pricingSource,
       pricingId,
     };
   }

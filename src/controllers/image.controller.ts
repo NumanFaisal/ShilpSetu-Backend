@@ -4,15 +4,44 @@ import { createBatchSchema } from '../modules/image/image.types';
 
 export class ImageController {
   /**
-   * Direct multipart/form-data upload (1–4 files) via POST /api/image-batches/upload.
+   * Direct upload (1–10 files) via multipart/form-data or JSON Base64 via POST /api/image-batches/upload.
    */
   async uploadBatchDirect(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = (req as any).user?.id || 1;
-      const files = req.files as Express.Multer.File[];
+      let files: Express.Multer.File[] = (req.files as Express.Multer.File[]) || [];
+
+      // If sent as JSON with base64 images array
+      if ((!files || files.length === 0) && Array.isArray(req.body?.images)) {
+        files = req.body.images
+          .map((item: any, i: number) => {
+            const rawBase64 = typeof item === 'string' ? item : (item.data || item.base64 || '');
+            if (!rawBase64) return null;
+            const cleanBase64 = rawBase64.replace(/^data:image\/\w+;base64,/, '');
+            const buffer = Buffer.from(cleanBase64, 'base64');
+            const name = item.name || `photo_${i + 1}.jpg`;
+            const ext = name.split('.').pop()?.toLowerCase();
+            const mime = item.type || (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
+
+            return {
+              fieldname: 'images',
+              originalname: name,
+              encoding: '7bit',
+              mimetype: mime,
+              buffer,
+              size: buffer.length,
+            } as Express.Multer.File;
+          })
+          .filter(Boolean) as Express.Multer.File[];
+      }
 
       if (!files || files.length === 0) {
-        res.status(400).json({ error: 'Please upload between 1 and 4 image files using form field "images"' });
+        res.status(400).json({ error: 'Please upload between 1 and 10 image files using form field "images" or JSON array' });
+        return;
+      }
+
+      if (files.length > 10) {
+        res.status(400).json({ error: 'Maximum 10 images allowed per batch' });
         return;
       }
 

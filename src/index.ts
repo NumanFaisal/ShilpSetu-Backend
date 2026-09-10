@@ -26,8 +26,8 @@ app.listen(PORT, '0.0.0.0', () => {
   ┌──────────────────────────────────────────────┐
   │  ShilpSetu Backend — Product Studio API      │
   │                                              │
-  │  Server running on http://localhost:${PORT}     │
-  │  Environment: ${env.NODE_ENV.padEnd(30)}│
+  │  Server running on http://localhost:${PORT}  │
+  │  Environment: ${env.NODE_ENV.padEnd(30)}     │
   │                                              │
   │  Endpoints:                                  │
   │  [C1] POST /api/image-batches/upload         │

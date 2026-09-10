@@ -10,7 +10,7 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_FILES = 4;
+const MAX_FILES = 10;
 
 /**
  * Multer memory storage for direct image uploads.

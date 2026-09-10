@@ -32,6 +32,73 @@ function resolveAudioMimeType(filename: string): string {
   }
 }
 
+const LANGUAGE_NAME_TO_ISO: Record<string, string> = {
+  hindi: 'hi',
+  tamil: 'ta',
+  telugu: 'te',
+  bengali: 'bn',
+  marathi: 'mr',
+  gujarati: 'gu',
+  kannada: 'kn',
+  malayalam: 'ml',
+  punjabi: 'pa',
+  urdu: 'ur',
+  odia: 'or',
+  oriya: 'or',
+  assamese: 'as',
+  sanskrit: 'sa',
+  english: 'en',
+  spanish: 'es',
+  french: 'fr',
+  german: 'de',
+  chinese: 'zh',
+  japanese: 'ja',
+  arabic: 'ar',
+  russian: 'ru',
+  portuguese: 'pt',
+  italian: 'it',
+};
+
+function normalizeLanguageCode(rawLanguage: unknown): string {
+  if (typeof rawLanguage !== 'string' || !rawLanguage.trim()) {
+    return 'unknown';
+  }
+
+  const normalized = rawLanguage.trim().toLowerCase();
+
+  // If already a valid 2-letter ISO 639-1 code
+  if (/^[a-z]{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  // Check language name map (e.g. 'Hindi' -> 'hi', 'Tamil' -> 'ta')
+  if (LANGUAGE_NAME_TO_ISO[normalized]) {
+    return LANGUAGE_NAME_TO_ISO[normalized];
+  }
+
+  // 3-letter ISO 639-2 / 639-3 map
+  const ISO_639_2_MAP: Record<string, string> = {
+    hin: 'hi',
+    tam: 'ta',
+    tel: 'te',
+    ben: 'bn',
+    mar: 'mr',
+    guj: 'gu',
+    kan: 'kn',
+    mal: 'ml',
+    pan: 'pa',
+    urd: 'ur',
+    ori: 'or',
+    asm: 'as',
+    eng: 'en',
+  };
+  if (ISO_639_2_MAP[normalized]) {
+    return ISO_639_2_MAP[normalized];
+  }
+
+  return 'unknown';
+}
+
 export class SpeechToTextService {
   private groqClient: OpenAI | null = null;
   private openaiClient: OpenAI | null = null;
@@ -94,10 +161,11 @@ export class SpeechToTextService {
         const rawTranscription = await this.groqClient.audio.transcriptions.create({
           file: fileInput,
           model: 'whisper-large-v3',
+          response_format: 'verbose_json',
         });
 
         const originalText = rawTranscription.text?.trim() || '';
-        const detectedLanguage = (rawTranscription as any).language || 'unknown';
+        const detectedLanguage = normalizeLanguageCode(rawTranscription.language);
 
         if (originalText) {
           let englishText = originalText;
@@ -133,10 +201,11 @@ export class SpeechToTextService {
         const rawTranscription = await this.openaiClient.audio.transcriptions.create({
           file: fileInput,
           model: 'whisper-1',
+          response_format: 'verbose_json',
         });
 
         const originalText = rawTranscription.text?.trim() || '';
-        const detectedLanguage = (rawTranscription as any).language || 'unknown';
+        const detectedLanguage = normalizeLanguageCode(rawTranscription.language);
 
         if (originalText) {
           let englishText = originalText;
@@ -167,7 +236,7 @@ export class SpeechToTextService {
 
     // ─── 3. Try Gemini Multimodal Audio (Native Audio Understanding) ────────
     if (this.geminiClient) {
-      const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+      const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
       for (const model of geminiModels) {
         try {
           const response = await this.geminiClient.models.generateContent({

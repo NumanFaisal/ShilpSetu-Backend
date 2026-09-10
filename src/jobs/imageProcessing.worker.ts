@@ -8,10 +8,27 @@ import { imagePipeline } from './pipeline';
  * Runs the full product studio pipeline (validation → background
  * removal → studio reconstruction → export) for each image.
  */
+import { db } from '../prisma/db';
+
 export function startImageProcessingWorker() {
   const worker = new Worker<ImageJobData>(
     IMAGE_PROCESSING_QUEUE_NAME,
     async (job) => {
+      // Atomic claim: only claim and transition if status is currently QUEUED or PENDING
+      const claimed = await db.orm.public.ProductImage
+        .where((img) => img.id.eq(job.data.imageId))
+        .where((img) => img.status.in(['QUEUED', 'PENDING']))
+        .update({
+          status: 'PROCESSING',
+        });
+
+      if (!claimed) {
+        console.log(
+          `[Worker] Image ${job.data.imageId} already claimed or completed. Skipping redundant processing for job ${job.id}.`
+        );
+        return;
+      }
+
       console.log(
         `[Worker] Processing job ${job.id} — batch=${job.data.batchId}, image=${job.data.imageId}`
       );

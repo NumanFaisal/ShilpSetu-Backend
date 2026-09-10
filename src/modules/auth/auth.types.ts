@@ -14,6 +14,7 @@ export const signinSchema = z.object({
   identifier: z.string().trim().optional(),
   phone: z.string().trim().optional(), // backward compat
   password: z.string().min(1, 'Password is required'),
+  role: z.enum(['artisan', 'buyer', 'user', 'admin']).optional(),
 }).refine(data => !!(data.email || data.username || data.identifier || data.phone), {
   message: 'Email or username is required',
   path: ['email'],

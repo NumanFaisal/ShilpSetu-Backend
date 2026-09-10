@@ -22,6 +22,12 @@ export async function composeProfessionalStudioShot(
   const paddingRatio = options.paddingRatio || 0.12;
   const alignment = options.verticalAlignment || 'bottom_grounded';
 
+  const origMeta = await sharp(productBuffer).metadata();
+  // If productBuffer is already an opaque full-bleed studio scene, keep it full-bleed
+  if (!origMeta.hasAlpha && origMeta.width && origMeta.height && origMeta.width >= 1500 && !options.backgroundBuffer) {
+    return sharp(productBuffer).resize(targetW, targetH, { fit: 'cover' }).toBuffer();
+  }
+
   // Allowed bounding box for the product within the canvas
   const availableW = Math.round(targetW * (1 - paddingRatio * 2));
   const availableH = Math.round(targetH * (1 - paddingRatio * 2));

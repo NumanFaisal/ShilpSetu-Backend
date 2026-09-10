@@ -9,10 +9,14 @@ const router = Router();
 router.use(optionalAuthenticate);
 
 // ─── Direct Upload ───────────────────────────────
-// POST /api/image-batches/upload — multipart/form-data with "images" field (1–4 files)
+// POST /api/image-batches/upload — multipart/form-data or JSON base64 with "images" (1–10 files)
 router.post(
   '/image-batches/upload',
   (req, res, next) => {
+    // If request is JSON base64 upload, skip multer
+    if (req.is('application/json') || req.headers['content-type']?.includes('application/json')) {
+      return next();
+    }
     uploadImages(req, res, (err) => {
       if (err) {
         res.status(400).json({ error: err.message });

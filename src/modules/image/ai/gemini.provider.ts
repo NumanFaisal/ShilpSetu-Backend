@@ -112,7 +112,7 @@ Respond ONLY with one valid JSON object matching this exact schema. Do not inclu
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.5-flash',
       contents: [
         {
           role: 'user',
@@ -195,7 +195,7 @@ Respond ONLY with one valid JSON object for the detection metadata. Do not inclu
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.5-flash',
       contents: [
         {
           role: 'user',
@@ -317,7 +317,7 @@ Respond ONLY with valid JSON:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.5-flash',
         contents: [
           {
             role: 'user',
@@ -381,7 +381,7 @@ Respond ONLY with valid JSON:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.5-flash',
         contents: [
           {
             role: 'user',

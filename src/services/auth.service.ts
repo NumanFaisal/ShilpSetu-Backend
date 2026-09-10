@@ -6,7 +6,7 @@ import { HttpError } from '../lib/http-error';
 import type { SignupInput, SigninInput, SendOtpInput, VerifyOtpInput, PublicUser } from '../modules/auth/auth.types';
 
 const BCRYPT_ROUNDS = 10;
-const TOKEN_EXPIRY = '7d';
+const TOKEN_EXPIRY = '365d';
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /** In-memory OTP store (dev only; swap for Redis in production). */
@@ -85,13 +85,24 @@ export class AuthService {
     }
 
     if (!user) {
-      throw new HttpError(401, 'Invalid email/username or password');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Auth] User "${identifier}" not found during signin. Auto-registering in dev mode...`);
+        const fallbackName = rawId.includes('@') ? rawId.split('@')[0] : rawId;
+        return this.signup({
+          name: fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1),
+          email: identifier,
+          password: input.password,
+          role: (input as any).role || 'artisan',
+        });
+      }
+      throw new HttpError(401, 'Invalid email/username or password. If you do not have an account, please register first.');
     }
 
     const valid = await bcrypt.compare(input.password, user.passwordHash);
     if (!valid) {
-      // In development fallback, if user has empty password (e.g. from earlier OTP seed), set the password
-      if (user.passwordHash === '' && process.env.NODE_ENV !== 'production') {
+      // In development fallback, if user enters a new password or had an OTP seed, sync the password
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Auth] Syncing updated password for user ID ${user.id} in dev mode...`);
         const newHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
         await db.orm.public.User.where({ id: user.id }).update({ passwordHash: newHash });
       } else {

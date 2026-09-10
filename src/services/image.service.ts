@@ -2,7 +2,6 @@ import { randomUUID } from 'crypto';
 import { r2 } from '../lib/r2';
 import { db } from '../prisma/db';
 import { imageProcessingQueue } from '../jobs/queues';
-import { imagePipeline } from '../jobs/pipeline';
 import type { ImageJobData } from '../jobs/queues';
 import type { CreateBatchInput } from '../modules/image/image.types';
 
@@ -40,61 +39,45 @@ export class ImageService {
 
     const enqueuedImages: { imageId: string; storageKey: string }[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]!;
-      const imageId = randomUUID();
-      const ext = this.getExtension(file.mimetype);
-      const storageKey = `shilpsetu/users/${userId}/batches/${batch.id}/originals/${imageId}.${ext}`;
+    await Promise.all(
+      files.map(async (file) => {
+        const imageId = randomUUID();
+        const ext = this.getExtension(file.mimetype);
+        const storageKey = `shilpsetu/users/${userId}/batches/${batch.id}/originals/${imageId}.${ext}`;
 
-      // Upload original to R2
-      await r2.uploadObject(storageKey, file.buffer, file.mimetype);
+        // Upload original to R2
+        await r2.uploadObject(storageKey, file.buffer, file.mimetype);
 
-      // Create ProductImage record
-      await db.orm.public.ProductImage.create({
-        id: imageId,
-        batchId: batch.id,
-        productId: options.productId ?? null,
-        originalKey: storageKey,
-        status: 'QUEUED',
-        currentStep: 'QUEUED',
-        progress: 0,
-      });
+        // Create ProductImage record
+        await db.orm.public.ProductImage.create({
+          id: imageId,
+          batchId: batch.id,
+          productId: options.productId ?? null,
+          originalKey: storageKey,
+          status: 'QUEUED',
+          currentStep: 'QUEUED',
+          progress: 0,
+        });
 
-      // Enqueue processing job for BullMQ
-      const jobData = this.buildJobData({
-        batchId: batch.id,
-        imageId,
-        userId,
-        originalKey: storageKey,
-        style,
-        productId: options.productId,
-      });
+        // Enqueue processing job for BullMQ
+        const jobData = this.buildJobData({
+          batchId: batch.id,
+          imageId,
+          userId,
+          originalKey: storageKey,
+          style,
+          productId: options.productId,
+        });
 
-      try {
-        await Promise.race([
-          imageProcessingQueue.add(
-            `process-${batch.id}-${imageId}`,
-            jobData,
-            {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-            }
-          ),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Redis enqueue timeout')), 1200)
-          ),
-        ]);
-      } catch (queueErr: any) {
-        console.warn('[ImageService] Redis queue warning (fallback to direct processing):', queueErr?.message);
-      }
+        // Rely solely on imageProcessingQueue for processing (configured with retry/backoff)
+        await imageProcessingQueue.add(`process-${batch.id}-${imageId}`, jobData, {
+          attempts: 2,
+          removeOnComplete: true,
+        });
 
-      // Execute directly in background to guarantee real-time studio processing
-      imagePipeline.processImage(jobData).catch((pipelineErr) => {
-        console.error('[ImageService] Direct pipeline execution error:', pipelineErr);
-      });
-
-      enqueuedImages.push({ imageId, storageKey });
-    }
+        enqueuedImages.push({ imageId, storageKey });
+      })
+    );
 
     return {
       batchId: batch.id,
@@ -291,16 +274,23 @@ export class ImageService {
     if (!batch) throw new Error('Batch not found');
     if (batch.userId !== userId) throw new Error('Unauthorized');
 
-    const image = await db.orm.public.ProductImage.where({ id: imageId }).first();
-    if (!image || image.batchId !== batchId) throw new Error('Image not found in this batch');
-    if (image.status !== 'FAILED') throw new Error('Only failed images can be retried');
+    // Atomic claim: only claim and transition if status is currently FAILED
+    const claimed = await db.orm.public.ProductImage
+      .where((img) => img.id.eq(imageId))
+      .where((img) => img.batchId.eq(batchId))
+      .where((img) => img.status.eq('FAILED'))
+      .update({
+        status: 'QUEUED',
+        currentStep: 'VALIDATION',
+        progress: 0,
+        error: null,
+      });
 
-    await db.orm.public.ProductImage.where({ id: imageId }).update({
-      status: 'QUEUED',
-      currentStep: 'VALIDATION',
-      progress: 0,
-      error: null,
-    });
+    if (!claimed) {
+      const existing = await db.orm.public.ProductImage.where({ id: imageId }).first();
+      if (!existing || existing.batchId !== batchId) throw new Error('Image not found in this batch');
+      throw new Error('Only failed images can be retried');
+    }
 
     await imageProcessingQueue.add(
       `retry-${batchId}-${imageId}`,
@@ -308,7 +298,7 @@ export class ImageService {
         batchId,
         imageId,
         userId,
-        originalKey: image.originalKey,
+        originalKey: claimed.originalKey,
         style: batch.style,
         productId: batch.productId ?? undefined,
         isRetry: true,

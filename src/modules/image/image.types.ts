@@ -14,7 +14,7 @@ export const createBatchSchema = z.object({
     .number()
     .int()
     .min(1, 'Minimum 1 image is required')
-    .max(4, 'Maximum 4 images allowed per batch'),
+    .max(10, 'Maximum 10 images allowed per batch'),
   productId: z.coerce.number().int().optional(),
   style: z.enum([...STUDIO_STYLES] as [string, ...string[]]).default('white_studio'),
 });
