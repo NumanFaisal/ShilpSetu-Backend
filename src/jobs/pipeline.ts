@@ -95,8 +95,13 @@ export class ImagePipeline {
           const existingAnalysis = batchImages.find((img) => img.analysis)?.analysis;
           if (existingAnalysis && !jobData.isRetry) return JSON.parse(existingAnalysis);
 
-          const analysisPromise = aiService.analyzeProduct([originalBuffer], { batchId, imageId })
-            .catch(() => aiService.createFallbackProvider().analyzeProduct([originalBuffer]));
+          const analysisPromise = Promise.race([
+            aiService.analyzeProduct([originalBuffer], { batchId, imageId }),
+            new Promise<ProductSpecification>((resolve) =>
+              setTimeout(() => resolve(aiService.createFallbackProvider().analyzeProduct([originalBuffer])), 4000)
+            ),
+          ]).catch(() => aiService.createFallbackProvider().analyzeProduct([originalBuffer]));
+
           batchAnalysisLocks.set(batchId, analysisPromise);
           return await analysisPromise;
         })(),
@@ -208,12 +213,14 @@ export class ImagePipeline {
       const outputPortraitKey = `shilpsetu/users/${userId}/batches/${batchId}/${imageId}/final/4x5.jpg`;
       const outputLandscapeKey = `shilpsetu/users/${userId}/batches/${batchId}/${imageId}/final/16x9.jpg`;
 
-      // Upload all 3 outputs in parallel
-      await Promise.all([
-        r2.uploadObject(outputSquareKey, formatted.square1x1.buffer, 'image/jpeg'),
+      // Upload primary square output first so client gets enhanced photo instantly (<1s)
+      await r2.uploadObject(outputSquareKey, formatted.square1x1.buffer, 'image/jpeg');
+
+      // Upload portrait and landscape formats in background
+      Promise.all([
         r2.uploadObject(outputPortraitKey, formatted.portrait4x5.buffer, 'image/jpeg'),
         r2.uploadObject(outputLandscapeKey, formatted.landscape16x9.buffer, 'image/jpeg'),
-      ]);
+      ]).catch(() => {});
 
       Promise.all([
         this.saveImageVersion(imageId, 'FINAL_1X1', outputSquareKey, 1500, 1500, 'jpeg'),
@@ -221,7 +228,7 @@ export class ImagePipeline {
         this.saveImageVersion(imageId, 'FINAL_16X9', outputLandscapeKey, 1600, 900, 'jpeg'),
       ]).catch(() => {});
 
-      // Update image status to COMPLETED
+      // Update image status to COMPLETED immediately
       await db.orm.public.ProductImage.where({ id: imageId }).update({
         outputSquareKey,
         outputPortraitKey,
