@@ -1,14 +1,26 @@
 import { db } from '../prisma/db';
 import { HttpError } from '../lib/http-error';
 import { artisanService } from './artisan.service';
+import { r2 } from '../lib/r2';
 import type { CreateProductInput, UpdateProductInput } from '../modules/product/product.types';
+
+async function resolveImageUrl(key: string | null | undefined): Promise<string | null> {
+  if (!key) return null;
+  if (key.startsWith('http://') || key.startsWith('https://')) return key;
+  try {
+    return await r2.getAccessUrl(key);
+  } catch (err) {
+    console.warn('[ProductService] Failed to get signed URL for', key, err);
+    return null;
+  }
+}
 
 export class ProductService {
   /** POST /api/products */
   async create(userId: number, input: CreateProductInput) {
     const artisanId = await artisanService.requireArtisanId(userId);
 
-    return db.orm.public.Product.create({
+    const product = await db.orm.public.Product.create({
       artisanId,
       name: input.name,
       category: input.category ?? null,
@@ -18,6 +30,46 @@ export class ProductService {
       quantity: input.quantity ?? 0,
       status: 'draft',
     });
+
+    // Link images provided by input or find recently created unlinked images for this user
+    if (input.images && input.images.length > 0) {
+      for (const imgItem of input.images) {
+        if (!imgItem) continue;
+        const uuidMatches = String(imgItem).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi);
+        let linked = false;
+        if (uuidMatches && uuidMatches.length > 0) {
+          for (const candidateId of uuidMatches) {
+            const existing = await db.orm.public.ProductImage.where({ id: candidateId }).all().first();
+            if (existing) {
+              await db.orm.public.ProductImage.where({ id: candidateId }).update({ productId: product.id });
+              linked = true;
+              break;
+            }
+          }
+        }
+        if (!linked && (imgItem.startsWith('http') || imgItem.includes('shilpsetu/'))) {
+          const byKey = await db.orm.public.ProductImage.where({ outputSquareKey: imgItem }).all().first();
+          if (byKey) {
+            await db.orm.public.ProductImage.where({ id: byKey.id }).update({ productId: product.id });
+          }
+        }
+      }
+    }
+
+    // If still no images linked to this product, link any unlinked batches created by this user
+    const linkedImages = await db.orm.public.ProductImage.where({ productId: product.id }).all();
+    if (linkedImages.length === 0) {
+      const batches = await db.orm.public.ImageBatch.where({ userId }).all();
+      for (const b of batches) {
+        const unlinked = await db.orm.public.ProductImage.where({ batchId: b.id, productId: null }).all();
+        for (const un of unlinked) {
+          await db.orm.public.ProductImage.where({ id: un.id }).update({ productId: product.id });
+        }
+        if (unlinked.length > 0) break;
+      }
+    }
+
+    return this.getOwned(userId, product.id);
   }
 
   /** GET /api/products — all of "my" products, with everything wired to them. */
@@ -31,15 +83,21 @@ export class ProductService {
       .include('inquiries', (i) => i)
       .all();
 
-    return rows.map((p: any) => {
-      const images = (p.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
-      return {
-        ...p,
-        images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1590736704728-f4730bb30770?w=600'],
-        views: 342,
-        inquiries: (p.inquiries ?? []).length,
-      };
-    });
+    return Promise.all(
+      rows.map(async (p: any) => {
+        const imageKeys = (p.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
+        const resolvedUrls = (
+          await Promise.all(imageKeys.map((k: string) => resolveImageUrl(k)))
+        ).filter(Boolean) as string[];
+
+        return {
+          ...p,
+          images: resolvedUrls,
+          views: 342,
+          inquiries: (p.inquiries ?? []).length,
+        };
+      })
+    );
   }
 
   /** Shared ownership check used by get/update/delete/publish. */
@@ -60,10 +118,14 @@ export class ProductService {
       throw new HttpError(403, 'You do not own this product.');
     }
 
-    const images = (product.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
+    const imageKeys = (product.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey).filter(Boolean);
+    const resolvedUrls = (
+      await Promise.all(imageKeys.map((k: string) => resolveImageUrl(k)))
+    ).filter(Boolean) as string[];
+
     return {
       ...product,
-      images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1590736704728-f4730bb30770?w=600'],
+      images: resolvedUrls,
       views: 342,
       inquiries: (product.inquiries ?? []).length,
     };

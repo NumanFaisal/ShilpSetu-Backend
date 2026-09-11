@@ -1,5 +1,6 @@
 import { db } from '../prisma/db';
 import { HttpError } from '../lib/http-error';
+import { r2 } from '../lib/r2';
 import type { CreateArtisanInput, UpdateArtisanInput } from '../modules/artisan/artisan.types';
 
 /** Turns "Meera's Bamboo Crafts" into "meeras-bamboo-crafts". */
@@ -62,9 +63,23 @@ export class ArtisanService {
     const orders = await db.orm.public.Order.where({ artisanId: artisan.id }).all();
     const inquiries = await db.orm.public.B2BInquiry.where({ artisanId: artisan.id, status: 'PENDING' }).all();
 
-    const portfolio = products
+    const portfolioKeys = products
       .flatMap((p: any) => (p.images ?? []).map((img: any) => img.outputSquareKey || img.originalKey))
       .filter(Boolean);
+
+    const portfolio = (
+      await Promise.all(
+        portfolioKeys.map(async (key: string) => {
+          if (!key) return null;
+          if (key.startsWith('http://') || key.startsWith('https://')) return key;
+          try {
+            return await r2.getAccessUrl(key);
+          } catch {
+            return null;
+          }
+        })
+      )
+    ).filter(Boolean) as string[];
 
     const activeOrders = orders.filter((o) => o.status !== 'DELIVERED' && o.status !== 'CANCELLED').length;
     const totalEarnings = orders
@@ -83,10 +98,7 @@ export class ArtisanService {
       totalEarnings,
       pendingInquiries: inquiries.length,
       verified: true,
-      portfolio: portfolio.length > 0 ? portfolio : [
-        'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400',
-        'https://images.unsplash.com/photo-1545454675-3531b543be5d?w=400',
-      ],
+      portfolio,
     };
   }
 
