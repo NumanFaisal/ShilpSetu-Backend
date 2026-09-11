@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "npx tsx watch src/index.ts",
-    "start": "npx tsx src/index.ts",
+    "start": "npx prisma db update --yes && npx tsx src/index.ts",
+    "db:update": "npx prisma db update --yes",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:apis": "npx tsx scripts/test-all-apis.ts",
     "postinstall": "prisma skills sync || exit 0",
