@@ -55,7 +55,16 @@ app.use('/api', buyerRequestRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', imageRoutes);
 
-// ─── Health Check ─────────────────────────────────
+// ─── Health Check & Root ─────────────────────────
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'ShilpSetu Backend API',
+    health: '/health',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });

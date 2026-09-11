@@ -7,10 +7,26 @@ import { env } from '../config/env';
  */
 export function createRedisConnection(): Redis {
   if (env.REDIS_URL) {
+    const isTls = env.REDIS_URL.startsWith('rediss://');
     return new Redis(env.REDIS_URL, {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
+      ...(isTls ? { tls: { rejectUnauthorized: false } } : {}),
+      retryStrategy: (times) => Math.min(times * 200, 5000),
+      reconnectOnError: (err) => {
+        const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT'];
+        return targetErrors.some((target) => err.message.includes(target));
+      },
     });
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(
+      '⚠️ [Redis] REDIS_URL is not set in production! Falling back to REDIS_HOST: ' +
+        env.REDIS_HOST +
+        ':' +
+        env.REDIS_PORT
+    );
   }
 
   return new Redis({
@@ -19,5 +35,6 @@ export function createRedisConnection(): Redis {
     password: env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    retryStrategy: (times) => Math.min(times * 200, 5000),
   });
 }
