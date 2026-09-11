@@ -76,34 +76,8 @@ export class ImagePipeline {
 
       await this.saveImageVersion(imageId, 'ORIGINAL', originalKey, validation.width, validation.height, validation.format);
 
-      // STAGE 2: PRODUCT ANALYSIS (10%)
+      // STAGE 2 & 4: PRODUCT ANALYSIS + BACKGROUND REMOVAL (Parallelized for maximum speed)
       await this.updateImageState(imageId, 'PROCESSING', 'ANALYSIS', STEP_PROGRESS.ANALYSIS);
-      let productSpec: ProductSpecification;
-
-      // Check if this batch already has an in-flight or completed analysis
-      const existingPromise = batchAnalysisLocks.get(batchId);
-      if (existingPromise && !jobData.isRetry) {
-        productSpec = await existingPromise;
-      } else {
-        const batchImages = await db.orm.public.ProductImage.where({ batchId }).all();
-        const existingAnalysis = batchImages.find((img) => img.analysis)?.analysis;
-
-        if (existingAnalysis && !jobData.isRetry) {
-          productSpec = JSON.parse(existingAnalysis);
-        } else {
-          const analysisPromise = aiService.analyzeProduct([originalBuffer], { batchId, imageId })
-            .catch(() => aiService.createFallbackProvider().analyzeProduct());
-          batchAnalysisLocks.set(batchId, analysisPromise);
-          productSpec = await analysisPromise;
-        }
-      }
-
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        analysis: JSON.stringify(productSpec),
-      });
-
-      // STAGE 3: PRODUCT DETECTION (20%) — Instant centered bounding box
-      await this.updateImageState(imageId, 'PROCESSING', 'DETECTION', STEP_PROGRESS.DETECTION);
       const boundingBox = {
         x: Math.round(validation.width * 0.05),
         y: Math.round(validation.height * 0.05),
@@ -112,36 +86,47 @@ export class ImagePipeline {
         confidence: 0.95,
         coverage: 0.81,
       };
+
+      const [productSpec, segResult] = await Promise.all([
+        (async (): Promise<ProductSpecification> => {
+          const existingPromise = batchAnalysisLocks.get(batchId);
+          if (existingPromise && !jobData.isRetry) return await existingPromise;
+          const batchImages = await db.orm.public.ProductImage.where({ batchId }).all();
+          const existingAnalysis = batchImages.find((img) => img.analysis)?.analysis;
+          if (existingAnalysis && !jobData.isRetry) return JSON.parse(existingAnalysis);
+
+          const analysisPromise = aiService.analyzeProduct([originalBuffer], { batchId, imageId })
+            .catch(() => aiService.createFallbackProvider().analyzeProduct([originalBuffer]));
+          batchAnalysisLocks.set(batchId, analysisPromise);
+          return await analysisPromise;
+        })(),
+        removeBackground(originalBuffer, boundingBox),
+      ]);
+
       await db.orm.public.ProductImage.where({ id: imageId }).update({
+        analysis: JSON.stringify(productSpec),
         boundingBox: JSON.stringify(boundingBox),
       });
 
-      // STAGE 4: BACKGROUND REMOVAL / SEGMENTATION with Poof.bg (30%)
-      await this.updateImageState(imageId, 'PROCESSING', 'BACKGROUND_REMOVAL', STEP_PROGRESS.BACKGROUND_REMOVAL);
-      const segResult = await removeBackground(originalBuffer, boundingBox);
       const cutoutBuffer = segResult.cutoutBuffer;
-
       const cutoutKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/cutout.png`;
       const maskKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/mask.png`;
 
-      await r2.uploadObject(cutoutKey, cutoutBuffer, 'image/png');
-      await r2.uploadObject(maskKey, segResult.maskBuffer, 'image/png');
+      // Upload cutout and mask asynchronously in background without blocking pipeline
+      r2.uploadObject(cutoutKey, cutoutBuffer, 'image/png').catch(() => {});
+      r2.uploadObject(maskKey, segResult.maskBuffer, 'image/png').catch(() => {});
+      this.saveImageVersion(imageId, 'CUTOUT', cutoutKey, undefined, undefined, 'png').catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        cutoutKey,
-      });
-      await this.saveImageVersion(imageId, 'CUTOUT', cutoutKey, undefined, undefined, 'png');
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ cutoutKey });
 
       // STAGE 5: PRODUCT CLEANUP (40%)
       await this.updateImageState(imageId, 'PROCESSING', 'CLEANUP', STEP_PROGRESS.CLEANUP);
       const cleanedBuffer = await cleanupCutout(cutoutBuffer, { sharpen: true, trimMargin: 20 });
       const cleanedKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/cleaned.png`;
-      await r2.uploadObject(cleanedKey, cleanedBuffer, 'image/png');
+      r2.uploadObject(cleanedKey, cleanedBuffer, 'image/png').catch(() => {});
+      this.saveImageVersion(imageId, 'CLEANED', cleanedKey, undefined, undefined, 'png').catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        cleanedKey,
-      });
-      await this.saveImageVersion(imageId, 'CLEANED', cleanedKey, undefined, undefined, 'png');
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ cleanedKey });
 
       // STAGE 6: AI STUDIO RECONSTRUCTION (60%)
       await this.updateImageState(imageId, 'PROCESSING', 'STUDIO_RECONSTRUCTION', STEP_PROGRESS.STUDIO_RECONSTRUCTION);
@@ -149,7 +134,7 @@ export class ImagePipeline {
         cleanedBuffer,
         productSpec,
         style,
-        { batchId, imageId, targetWidth: 2000, targetHeight: 2000 }
+        { batchId, imageId, targetWidth: 1500, targetHeight: 1500 }
       );
       const studioBuffer = studioResult.studioBuffer;
 
@@ -168,19 +153,16 @@ export class ImagePipeline {
       }).catch(() => {});
 
       const studioKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/studio.png`;
-      // Upload derivative in background
       r2.uploadObject(studioKey, studioBuffer, 'image/png').then(() => {
-        this.saveImageVersion(imageId, 'STUDIO', studioKey, 2000, 2000, 'png').catch(() => {});
+        this.saveImageVersion(imageId, 'STUDIO', studioKey, 1500, 1500, 'png').catch(() => {});
       }).catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        studioKey,
-      });
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ studioKey });
 
-      // STAGE 7: LIGHTING / EXPOSURE (70%)
+      // STAGE 7: LIGHTING / EXPOSURE (70%) — Instant material lighting preset
       await this.updateImageState(imageId, 'PROCESSING', 'LIGHTING', STEP_PROGRESS.LIGHTING);
       const lightingBuffer = await adjustLightingAndExposure(studioBuffer, {
-        autoDetect: true,
+        autoDetect: false,
         productHints: {
           material: productSpec.material,
           primaryColors: productSpec.primaryColors,
@@ -189,44 +171,38 @@ export class ImagePipeline {
       });
       const lightingKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/lighting.png`;
       r2.uploadObject(lightingKey, lightingBuffer, 'image/png').then(() => {
-        this.saveImageVersion(imageId, 'LIGHTING', lightingKey, 2000, 2000, 'png').catch(() => {});
+        this.saveImageVersion(imageId, 'LIGHTING', lightingKey, 1500, 1500, 'png').catch(() => {});
       }).catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        lightingKey,
-      });
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ lightingKey });
 
       // STAGE 8: REALISTIC SHADOW (80%)
       await this.updateImageState(imageId, 'PROCESSING', 'SHADOW', STEP_PROGRESS.SHADOW);
       const shadowBuffer = lightingBuffer;
       const shadowKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/shadow.png`;
       r2.uploadObject(shadowKey, shadowBuffer, 'image/png').then(() => {
-        this.saveImageVersion(imageId, 'SHADOW', shadowKey, 2000, 2000, 'png').catch(() => {});
+        this.saveImageVersion(imageId, 'SHADOW', shadowKey, 1500, 1500, 'png').catch(() => {});
       }).catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        shadowKey,
-      });
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ shadowKey });
 
       // STAGE 9: PROFESSIONAL COMPOSITION (90%)
       await this.updateImageState(imageId, 'PROCESSING', 'COMPOSITION', STEP_PROGRESS.COMPOSITION);
       const compositionBuffer = await composeProfessionalStudioShot(shadowBuffer, {
-        targetWidth: 2000,
-        targetHeight: 2000,
+        targetWidth: 1500,
+        targetHeight: 1500,
         paddingRatio: 0.12,
       });
       const compositionKey = `shilpsetu/users/${userId}/batches/${batchId}/derivatives/${imageId}/composition.png`;
       r2.uploadObject(compositionKey, compositionBuffer, 'image/png').then(() => {
-        this.saveImageVersion(imageId, 'COMPOSITION', compositionKey, 2000, 2000, 'png').catch(() => {});
+        this.saveImageVersion(imageId, 'COMPOSITION', compositionKey, 1500, 1500, 'png').catch(() => {});
       }).catch(() => {});
 
-      await db.orm.public.ProductImage.where({ id: imageId }).update({
-        compositionKey,
-      });
+      await db.orm.public.ProductImage.where({ id: imageId }).update({ compositionKey });
 
       // STAGE 10: OUTPUT GENERATION & MULTI-FORMAT EXPORTS (95% -> 100%)
       await this.updateImageState(imageId, 'PROCESSING', 'EXPORT', STEP_PROGRESS.EXPORT);
-      const formatted = await generateOutputFormats(compositionBuffer, { format: 'jpeg', quality: 95 });
+      const formatted = await generateOutputFormats(compositionBuffer, { format: 'jpeg', quality: 90 });
 
       const outputSquareKey = `shilpsetu/users/${userId}/batches/${batchId}/${imageId}/final/1x1.jpg`;
       const outputPortraitKey = `shilpsetu/users/${userId}/batches/${batchId}/${imageId}/final/4x5.jpg`;

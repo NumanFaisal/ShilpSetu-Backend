@@ -423,7 +423,6 @@ async function addPhotographicGrain(
       {
         input: grainBuffer,
         blend: 'soft-light',
-        opacity: 0.06,
       },
     ])
     .jpeg({ quality: 98 })

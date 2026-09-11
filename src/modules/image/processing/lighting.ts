@@ -30,7 +30,30 @@ export async function adjustLightingAndExposure(
   let contrast = options.contrast ?? 1.05;
   let saturation = options.saturation ?? 1.02;
 
-  if (options.autoDetect) {
+  if (options.productHints?.material) {
+    const mat = options.productHints.material.toLowerCase();
+    if (mat.includes('clay') || mat.includes('terracotta') || mat.includes('pottery')) {
+      brightness = 1.03;
+      contrast = 1.07;
+      saturation = 1.04;
+    } else if (mat.includes('wood') || mat.includes('bamboo') || mat.includes('cane')) {
+      brightness = 1.04;
+      contrast = 1.06;
+      saturation = 1.03;
+    } else if (mat.includes('brass') || mat.includes('metal') || mat.includes('copper') || mat.includes('silver')) {
+      brightness = 1.05;
+      contrast = 1.10;
+      saturation = 1.02;
+    } else if (mat.includes('silk') || mat.includes('textile') || mat.includes('cotton') || mat.includes('fabric')) {
+      brightness = 1.03;
+      contrast = 1.05;
+      saturation = 1.05;
+    } else if (mat.includes('marble') || mat.includes('stone') || mat.includes('ceramic')) {
+      brightness = 1.05;
+      contrast = 1.05;
+      saturation = 1.01;
+    }
+  } else if (options.autoDetect) {
     try {
       const adjustment: ExposureAdjustment = await aiService.analyzeLighting(imageBuffer);
       brightness = adjustment.brightness;
