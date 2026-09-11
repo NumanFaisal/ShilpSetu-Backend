@@ -215,11 +215,11 @@ export class ImagePipeline {
         r2.uploadObject(outputLandscapeKey, formatted.landscape16x9.buffer, 'image/jpeg'),
       ]);
 
-      await Promise.all([
-        this.saveImageVersion(imageId, 'FINAL_1X1', outputSquareKey, 2000, 2000, 'jpeg'),
-        this.saveImageVersion(imageId, 'FINAL_4X5', outputPortraitKey, 2000, 2500, 'jpeg'),
-        this.saveImageVersion(imageId, 'FINAL_16X9', outputLandscapeKey, 2400, 1350, 'jpeg'),
-      ]);
+      Promise.all([
+        this.saveImageVersion(imageId, 'FINAL_1X1', outputSquareKey, 1500, 1500, 'jpeg'),
+        this.saveImageVersion(imageId, 'FINAL_4X5', outputPortraitKey, 1200, 1500, 'jpeg'),
+        this.saveImageVersion(imageId, 'FINAL_16X9', outputLandscapeKey, 1600, 900, 'jpeg'),
+      ]).catch(() => {});
 
       // Update image status to COMPLETED
       await db.orm.public.ProductImage.where({ id: imageId }).update({

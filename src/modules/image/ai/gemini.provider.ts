@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import sharp from 'sharp';
 import { env } from '../../../config/env';
 import type {
   ImageAIProvider,
@@ -37,12 +38,29 @@ export class GeminiAIProvider implements ImageAIProvider {
   ): Promise<ProductSpecification> {
     const ai = this.getClient();
 
-    const parts = imageBuffers.map((buf) => ({
-      inlineData: {
-        data: buf.toString('base64'),
-        mimeType: 'image/jpeg',
-      },
-    }));
+    const parts = await Promise.all(
+      imageBuffers.map(async (buf) => {
+        try {
+          const compressed = await sharp(buf)
+            .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          return {
+            inlineData: {
+              data: compressed.toString('base64'),
+              mimeType: 'image/jpeg',
+            },
+          };
+        } catch {
+          return {
+            inlineData: {
+              data: buf.toString('base64'),
+              mimeType: 'image/jpeg',
+            },
+          };
+        }
+      })
+    );
 
     const prompt = `You are a master product analyst, artisan-craft specialist, commercial product photographer, and e-commerce catalog expert.
 
