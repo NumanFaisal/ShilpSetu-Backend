@@ -36,6 +36,8 @@ const STYLES = [
   },
 ] as const;
 
+let cachedStyles: any = null;
+
 export class StyleController {
   /**
    * GET /api/studio-styles
@@ -43,6 +45,11 @@ export class StyleController {
    */
   async listStyles(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (cachedStyles) {
+        res.json({ styles: cachedStyles });
+        return;
+      }
+
       const styles = await Promise.all(
         STYLES.map(async (style) => {
           const previewBuffer = await createSeamlessStudioBackdrop(
@@ -62,6 +69,7 @@ export class StyleController {
         })
       );
 
+      cachedStyles = styles;
       res.json({ styles });
     } catch (err) {
       next(err);
