@@ -44,11 +44,17 @@ export async function reconstructStudioEnvironment(
  * Generates a realistic, textured studio backdrop matching commercial product photography.
  * Each style uses layered SVG gradients + noise turbulence + surface-specific details.
  */
+const backdropCache = new Map<string, Buffer>();
+
 export async function createSeamlessStudioBackdrop(
   style: StudioStyle | string,
   width: number,
   height: number
 ): Promise<Buffer> {
+  const cacheKey = `${style}_${width}_${height}`;
+  if (backdropCache.has(cacheKey)) {
+    return backdropCache.get(cacheKey)!;
+  }
   let svgBg = '';
 
   switch (style) {
@@ -79,6 +85,7 @@ export async function createSeamlessStudioBackdrop(
   // Add subtle photographic noise grain for realism
   baseBuffer = await addPhotographicGrain(baseBuffer, width, height);
 
+  backdropCache.set(cacheKey, baseBuffer);
   return baseBuffer;
 }
 
