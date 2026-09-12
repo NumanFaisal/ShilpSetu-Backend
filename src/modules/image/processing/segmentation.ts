@@ -110,7 +110,21 @@ export async function removeBackground(
     }
   }
 
-  // Method 2: Gemini Vision AI Precision Contour Segmentation (fallback)
+  // Method 2: OpenAI Vision AI Precision Contour Segmentation (first AI fallback)
+  if (env.OPENAI_API_KEY) {
+    try {
+      console.log('[Segmentation] Falling back to OpenAI Vision AI contour segmentation...');
+      const openAiResult = await segmentWithOpenAIVision(imageBuffer);
+      if (openAiResult) {
+        console.log('[Segmentation] ✅ OpenAI Vision AI segmentation succeeded!');
+        return openAiResult;
+      }
+    } catch (err: any) {
+      console.warn('[Segmentation] OpenAI Vision AI segmentation failed, cascading to Gemini:', err.message);
+    }
+  }
+
+  // Method 3: Gemini Vision AI Precision Contour Segmentation (second AI fallback)
   if (env.GEMINI_API_KEY) {
     try {
       console.log('[Segmentation] Falling back to Gemini Vision AI contour segmentation...');
@@ -121,20 +135,6 @@ export async function removeBackground(
       }
     } catch (err: any) {
       console.warn('[Segmentation] Gemini Vision AI segmentation failed:', err.message);
-    }
-  }
-
-  // Method 3: OpenAI Vision AI Precision Contour Segmentation (instant fallback if Poof / Gemini fail)
-  if (env.OPENAI_API_KEY) {
-    try {
-      console.log('[Segmentation] Falling back instantly to OpenAI Vision AI contour segmentation...');
-      const openAiResult = await segmentWithOpenAIVision(imageBuffer);
-      if (openAiResult) {
-        console.log('[Segmentation] ✅ OpenAI Vision AI segmentation succeeded!');
-        return openAiResult;
-      }
-    } catch (err: any) {
-      console.warn('[Segmentation] OpenAI Vision AI segmentation failed:', err.message);
     }
   }
 

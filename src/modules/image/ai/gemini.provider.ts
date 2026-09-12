@@ -64,69 +64,46 @@ export class GeminiAIProvider implements ImageAIProvider {
 
     const prompt = `You are a master product analyst, artisan-craft specialist, commercial product photographer, and e-commerce catalog expert.
 
-Analyze the provided artisan product photo(s). Identify and describe ONLY the primary product object in the foreground. Ignore all unrelated background objects, including tables, desks, desk mats, computer monitors, keyboards, mice, cables, room walls, furniture, people, hands, lighting equipment, reflections, and cast shadows.
+TASK
+Analyze the provided artisan product photo(s). Identify and describe ONLY the primary product object in the foreground — the item intended for sale. Ignore all unrelated background elements: tables, desks, desk mats, monitors, keyboards, mice, cables, walls, furniture, people, hands, lighting equipment, reflections, and cast shadows.
 
 ${batchContext ? `Batch Context: ${batchContext}` : ''}
 
-Your analysis will be used for:
-1. Product identification
-2. Precise product detection
-3. Background removal and segmentation
-4. Product cleanup
-5. AI studio reconstruction
-6. Lighting and exposure correction
-7. Realistic shadow generation
-8. Professional e-commerce composition
-9. Final image generation
+This analysis feeds a downstream pipeline: product identification → detection → background removal → cleanup → AI studio reconstruction → lighting/exposure correction → shadow generation → final e-commerce image. Your job is ONLY to describe what is visibly true — you are not generating the final image.
 
-Analyze only details that are visibly supported by the image. Do not guess hidden areas, unreadable text, exact measurements, unseen materials, or missing product parts. If a detail is uncertain, describe it as uncertain.
+GROUNDING RULES
+- Describe only what is visibly supported by the image. Never guess hidden areas, unreadable text, exact measurements, unseen materials, or occluded parts.
+- If a detail is uncertain or partially visible, say so explicitly (e.g., "partially visible, likely ceramic — occluded by shadow") rather than omitting it or guessing.
+- If multiple products appear, describe the primary/foreground one and note the others exist in "occludedOrUnclearAreas" or a dedicated note — do not merge their attributes.
 
-The product identity must be preserved exactly during all later processing. The following details MUST NOT be changed, removed, redesigned, translated, replaced, or invented:
-- Product shape and proportions
-- Authentic colors and color relationships
-- Material appearance and surface texture
-- Logos, brand names, labels, symbols, and printed text
-- Artwork, patterns, decorations, seams, joints, handles, openings, rims, edges, and construction details
-- Natural handmade irregularities, fibers, grain, dents, scratches, and authentic imperfections
-- Product orientation unless explicitly requested
-- Any unique identifying feature
+IDENTITY PRESERVATION
+Everything you list under "preservationRules" must be a SPECIFIC, image-grounded detail (not generic boilerplate) — the exact things a downstream editor must not alter, removed, redesign, translate, or invent, including: shape/proportions, authentic colors, material/texture, logos/text/symbols, artwork/patterns/seams/handles/rims/construction details, natural handmade irregularities (fibers, grain, dents, authentic imperfections), orientation, and any unique identifying feature. Write these as concrete observations (e.g., "asymmetric rim with three visible thumb-press indentations"), not as a restatement of this rule.
 
-Respond ONLY with one valid JSON object matching this exact schema. Do not include Markdown, explanations, comments, or code fences.
+OUTPUT
+Respond ONLY with one valid JSON object matching the schema below. No Markdown, no code fences, no commentary before or after.
 
+SCHEMA (all fields required; use "unknown" for a string field or [] for an array field if genuinely not visible/applicable — never omit a field):
 {
-  "productType": "string",
-  "material": "string",
-  "primaryColors": ["string"],
-  "secondaryColors": ["string"],
-  "shape": "string",
-  "approximateDimensions": "string or description based only on visible proportions; do not invent exact measurements",
-  "texture": "string",
-  "craftsmanship": "string",
-  "structuralFeatures": ["string"],
-  "visibleDecorations": ["string"],
-  "handles": "string or none",
-  "edges": "string",
-  "symmetry": "string",
-  "orientation": "string",
-  "visibleText": ["string"],
-  "logosAndBranding": ["string"],
-  "surfaceCondition": ["string"],
-  "occludedOrUnclearAreas": ["string"],
-  "preservationRules": [
-    "List every critical visual detail that must remain unchanged during segmentation, cleanup, editing, reconstruction, and final image generation"
-  ],
-  "studioProcessingInstructions": {
-    "background": "clean seamless neutral studio background with no unrelated objects",
-    "lighting": "soft diffused commercial product lighting that preserves the real material response",
-    "exposure": "balanced exposure with natural highlights and shadow detail",
-    "shadow": "subtle physically accurate contact shadow beneath the product, separate from the product mask",
-    "composition": "centered professional e-commerce composition with balanced negative space",
-    "prohibitedChanges": [
-      "Do not alter product identity, proportions, colors, text, logo, artwork, texture, structure, or authentic imperfections",
-      "Do not add props, accessories, extra parts, people, hands, furniture, or background clutter",
-      "Do not make the product look like a different item or a digitally redesigned version"
-    ]
-  }
+  "productType": string,
+  "productCount": number,               // count of distinct products visible, even if only 1 is described
+  "material": string,
+  "primaryColors": string[],
+  "secondaryColors": string[],
+  "shape": string,
+  "approximateDimensions": string,       // relative/proportional description only, e.g. "roughly twice as tall as wide"; never invent units of measure
+  "texture": string,
+  "craftsmanship": string,               // visible construction quality/technique, e.g. "hand-thrown, visible throwing rings"
+  "structuralFeatures": string[],        // physical construction: joints, seams, openings, base, rim — NOT decorative elements
+  "visibleDecorations": string[],        // applied/decorative elements: paint, glaze pattern, carving, embroidery — NOT structural elements
+  "handles": string,                     // "none" if absent
+  "edges": string,
+  "symmetry": string,
+  "orientation": string,
+  "visibleText": string[],               // transcribe exactly as seen; [] if none
+  "logosAndBranding": string[],          // [] if none
+  "surfaceCondition": string[],          // wear, gloss, matte, scratches, dust, etc.
+  "occludedOrUnclearAreas": string[],    // [] if fully visible
+  "preservationRules": string[]          // specific, image-grounded — see IDENTITY PRESERVATION above
 }`;
 
     const response = await ai.models.generateContent({
@@ -156,64 +133,73 @@ Respond ONLY with one valid JSON object matching this exact schema. Do not inclu
 
     const prompt = `You are a precision computer-vision system and professional commercial product-image compositor.
 
-Carefully inspect the provided photo and identify the MAIN PRODUCT item in the foreground. Select only the primary product intended for sale. Ignore the table, desk, desk mat, computer screen, keyboard, mouse, cables, walls, furniture, people, hands, lighting equipment, unrelated objects, reflections, and cast shadows.
+TASK
+Analyze the provided photo and identify the single MAIN PRODUCT — the item clearly intended for sale or listing. 
 
-First, find the tightest accurate bounding box containing ONLY the complete visible main product. The bounding box must include all physically connected product parts, including handles, rims, protruding edges, attached components, and irregular handmade boundaries. It must exclude empty background space, unrelated objects, and cast shadows.
+Exclude from consideration: tables, desks, desk mats, screens, keyboards, mice, cables, walls, furniture, people, hands, lighting rigs, packaging not part of the product itself, reflections, and cast shadows.
 
-Return normalized coordinates on a 0 to 1000 scale, where 0,0 is the top-left and 1000,1000 is the bottom-right:
-- x: leftmost product coordinate
-- y: topmost product coordinate
-- width: product bounding-box width
-- height: product bounding-box height
+If multiple similar products appear (e.g., a stack of items), treat them as ONE product group and box the entire group. If multiple DIFFERENT products appear with no clear primary item, select the largest/most centered/most in-focus item as primary and note the rest in "boundaryNotes".
 
-Respond ONLY with one valid JSON object for the detection metadata. Do not include Markdown, explanations, comments, or code fences.
+STEP 1 — LOCATE
+Determine the tightest bounding box containing the COMPLETE visible main product, including all physically attached parts (handles, rims, straps, lids, cords that are part of the product, irregular/handmade edges). Exclude empty background, unrelated objects, and cast shadows. If part of the product is cropped by the image edge, set the box edge to the image boundary (0 or 1000) rather than guessing beyond the frame.
 
+STEP 2 — SCORE
+- confidence (0.0–1.0): your certainty that the selected region is the correct primary product and the box is accurate.
+- coverage (0.0–1.0): fraction of the bounding box area actually occupied by the product mask (i.e., how "tight" the box is; 1.0 = product fills the box entirely, e.g. a perfect rectangle).
+
+STEP 3 — OUTPUT
+Return ONLY one valid JSON object. No markdown, no code fences, no commentary, no trailing text before or after the JSON.
+
+SCHEMA (all fields required, types strict):
 {
   "boundingBox": {
-    "x": 0,
-    "y": 0,
-    "width": 0,
-    "height": 0
+    "x": number,       // 0–1000, left edge
+    "y": number,       // 0–1000, top edge
+    "width": number,   // 0–1000
+    "height": number   // 0–1000
   },
-  "confidence": 0.0,
-  "coverage": 0.0,
-  "productCount": 1,
-  "selectedProduct": "string",
-  "segmentationRequired": true,
-  "includeCastShadowInMask": false,
-  "backgroundObjectsExcluded": true,
-  "productFullyVisible": true,
-  "touchesImageEdge": false,
+  "confidence": number,        // 0.0–1.0, see STEP 2
+  "coverage": number,          // 0.0–1.0, see STEP 2
+  "productCount": number,      // count of distinct sellable products visible, even if only 1 is boxed
+  "selectedProduct": string,   // short descriptive name, e.g. "ceramic coffee mug"
+  "productFullyVisible": boolean,  // false if any part is cropped/cut off by frame or occluded
+  "touchesImageEdge": boolean,     // true if bounding box touches x=0, y=0, x=1000, or y=1000
   "occlusion": {
-    "level": "none | minor | major",
-    "occludedBy": ["string"],
-    "unclearAreas": ["string"]
+    "level": "none" | "minor" | "major",
+    "occludedBy": string[],   // empty array if level is "none"
+    "unclearAreas": string[]  // empty array if nothing is ambiguous
   },
-  "boundaryNotes": ["string"],
+  "boundaryNotes": string[],  // e.g. notes on other products excluded, irregular edges, judgment calls made; empty array if none
+
   "studioProcessing": {
     "background": "seamless neutral studio background",
     "lighting": "soft diffused commercial lighting",
     "exposure": "balanced natural exposure",
-    "shadow": "subtle realistic contact shadow separate from the product mask",
+    "shadow": "subtle realistic contact shadow, rendered separately from the product mask",
     "composition": "centered, fully visible, professional e-commerce composition",
     "outputAspectRatio": "1:1",
     "identityPreservation": "exact product identity must be preserved",
     "prohibitedChanges": [
-      "No shape changes",
-      "No proportion changes",
-      "No color changes",
-      "No logo or text changes",
-      "No material or texture changes",
-      "No added or removed product parts",
-      "No invented details",
-      "No background clutter",
-      "No watermark or border"
+      "no shape changes",
+      "no proportion changes",
+      "no color changes",
+      "no logo or text changes",
+      "no material or texture changes",
+      "no added or removed product parts",
+      "no invented details",
+      "no background clutter",
+      "no watermark or border"
     ]
   }
-}`;
+}
+
+RULES
+- Do not invent values. If genuinely uncertain about a field, use your best estimate and lower "confidence" accordingly — never omit a field.
+- Numeric fields must be plain numbers (not strings), rounded to the nearest integer for boundingBox, and to 2 decimal places for confidence/coverage.
+- Output must be parseable by JSON.parse() with no modification.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.6-flash',
       contents: [
         {
           role: 'user',
@@ -320,22 +306,53 @@ Respond ONLY with one valid JSON object for the detection metadata. Do not inclu
     const ai = this.getClient();
 
     const prompt = `You are a strict quality-assurance validator for artisan and e-commerce product photos.
-Compare Image 1 (original product cutout) and Image 2 (rendered studio output).
-Verify that the product identity, text, logos, and proportions have not been distorted.
 
-Respond ONLY with valid JSON:
+TASK
+Compare Image 1 (original product cutout) against Image 2 (rendered studio output). Determine whether Image 2 preserves the exact identity of the product shown in Image 1 — same object, same proportions, same colors, same text/logos/decorations — with only background, lighting, and shadow changed.
+
+WHAT COUNTS AS A VIOLATION
+Flag as an issue if Image 2 shows any of the following relative to Image 1:
+- Shape or proportion changes (stretched, squashed, resized inconsistently, warped)
+- Color shifts beyond what's explainable by lighting/exposure correction (hue changes, wrong material color)
+- Missing, added, or altered product parts (handles, rims, lids, seams, components)
+- Changed, blurred, removed, or invented text/logos/labels
+- Altered artwork, patterns, decorations, or construction details
+- Removed or smoothed-over authentic imperfections (handmade irregularities, natural grain/texture) that Image 1 clearly shows
+- Orientation changed without justification
+- Any element that looks like a different or "redesigned" version of the product rather than the same physical object
+
+Do NOT flag: background replacement, lighting/exposure changes, added contact shadow, minor anti-aliasing/edge softness from segmentation, or cropping/composition changes — these are expected and intentional.
+
+GROUNDING RULES
+- Only report issues you can visually confirm by comparing the two images directly. Do not speculate about parts of the product not visible in Image 1.
+- If a region is ambiguous (e.g., occluded in Image 1, so you can't verify Image 2), note it in "issues" with category "unverifiable" rather than assuming pass or fail.
+
+SCORING DEFINITIONS
+- "shapeSimilarity": 1.0 = identical silhouette/proportions; lower for any warping, resizing, or structural change. Judge geometry only, ignore color/lighting.
+- "colorSimilarity": 1.0 = same hues/material color response accounting for lighting correction; lower for hue shifts or incorrect material rendering.
+- "confidence": your certainty in this overall assessment, based on image clarity, resolution, and how much of the product is comparable between the two images.
+- "preserved": true ONLY if there are zero issues with severity "critical" (see below). Minor/cosmetic issues alone do not fail this.
+
+Respond ONLY with one valid JSON object. No Markdown, no code fences, no commentary before or after.
+
 {
-  "preserved": boolean,
-  "confidence": number (0.0 to 1.0),
-  "shapeSimilarity": number (0.0 to 1.0),
-  "colorSimilarity": number (0.0 to 1.0),
-  "detailsPreserved": boolean,
-  "issues": ["string"]
+  "preserved": boolean,           // true only if no "critical" severity issues exist
+  "confidence": number,           // 0.0-1.0, see SCORING DEFINITIONS
+  "shapeSimilarity": number,      // 0.0-1.0
+  "colorSimilarity": number,      // 0.0-1.0
+  "detailsPreserved": boolean,    // true only if all text/logos/decorations match exactly
+  "issues": [
+    {
+      "category": "shape" | "color" | "text_or_logo" | "missing_part" | "added_part" | "texture_or_decoration" | "orientation" | "unverifiable" | "other",
+      "severity": "critical" | "moderate" | "minor",
+      "description": string       // specific, image-grounded observation, not generic
+    }
+  ]                                // empty array if none found
 }`;
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.6-flash',
         contents: [
           {
             role: 'user',
@@ -399,7 +416,7 @@ Respond ONLY with valid JSON:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.6-flash',
         contents: [
           {
             role: 'user',

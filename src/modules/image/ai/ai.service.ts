@@ -17,7 +17,11 @@ export class AIService {
   private primaryProviderName: string = 'gemini';
 
   constructor() {
-    // Priority: Gemini (best quality) → Groq (free, fast) → OpenAI (paid fallback)
+    // Priority: OpenAI (first) → Gemini (second) → Groq (third)
+    if (env.OPENAI_API_KEY) {
+      this.providers.set('openai', new OpenAIAIProvider());
+    }
+
     if (env.GEMINI_API_KEY) {
       this.providers.set('gemini', new GeminiAIProvider());
     }
@@ -26,17 +30,13 @@ export class AIService {
       this.providers.set('groq', new GroqAIProvider());
     }
 
-    if (env.OPENAI_API_KEY) {
-      this.providers.set('openai', new OpenAIAIProvider());
-    }
-
-    // Set primary based on what's available
-    if (this.providers.has('gemini')) {
+    // Set primary based on what's available (OpenAI first, then Gemini, then Groq)
+    if (this.providers.has('openai')) {
+      this.primaryProviderName = 'openai';
+    } else if (this.providers.has('gemini')) {
       this.primaryProviderName = 'gemini';
     } else if (this.providers.has('groq')) {
       this.primaryProviderName = 'groq';
-    } else if (this.providers.has('openai')) {
-      this.primaryProviderName = 'openai';
     }
   }
 

@@ -33,6 +33,11 @@ const envSchema = z.object({
   POOF_BG_API_KEY: z.string().optional(),
   POOF_BG_API_URL: z.string().default('https://api.poof.bg/v1/remove'),
 
+  // Cloudinary GenAI Background Replacement
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
+
   // Marketplace token encryption (AES-256-GCM key, base64 or raw)
   TOKEN_ENCRYPTION_KEY: z.string().default('shilpsetu-dev-encryption-key-change-me'),
 

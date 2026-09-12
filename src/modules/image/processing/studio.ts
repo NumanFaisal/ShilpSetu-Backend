@@ -1,8 +1,10 @@
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import { aiService } from '../ai/ai.service';
 import type { ProductSpecification, StudioStyle } from '../ai/ai.types';
 import { enhanceCraftCutout } from './lighting';
 import { env } from '../../../config/env';
+import { seeObjectAndGenerateBackgroundPrompt } from '../ai/vision-background';
+import { generateAIBackgroundFromCutout } from '../ai/cloudinary.ai';
 
 export interface StudioReconstructionResult {
   studioBuffer: Buffer;
@@ -165,6 +167,8 @@ export function resolveContextualStyle(
 
 /**
  * Reconstructs a contextual e-commerce studio environment tailored to the artisan craft.
+ * Uses Vision AI to inspect the craft object and Generative AI diffusion to create
+ * a photorealistic, customized background scene (NOT hardcoded).
  */
 export async function reconstructStudioEnvironment(
   cleanedProductBuffer: Buffer,
@@ -180,15 +184,7 @@ export async function reconstructStudioEnvironment(
   const targetW = options?.targetWidth ?? 2000;
   const targetH = options?.targetHeight ?? 2000;
 
-  // 1. Resolve craft-contextual style
-  const contextual = resolveContextualStyle(productSpec, style);
-  const detectedCraft = productSpec?.productType || 'Artisan Craft';
-
-  console.log(
-    `[Studio] Reconstructing contextual studio for "${detectedCraft}" -> ${contextual.name} (${contextual.styleKey})`
-  );
-
-  // 2. Enhance product cutout with micro-texture sharpening & color vibrance
+  // 1. Enhance product cutout with micro-texture sharpening & color vibrance
   const enhancedCutout = await enhanceCraftCutout(cleanedProductBuffer, {
     material: productSpec?.material,
     primaryColors: productSpec?.primaryColors,
@@ -196,10 +192,60 @@ export async function reconstructStudioEnvironment(
     productType: productSpec?.productType,
   });
 
-  // 3. Generate high-resolution contextual backdrop matching the craft
+  // 2. Vision AI: Inspect the object and dynamically synthesize tailored background prompt
+  const requestedStyleStr = typeof style === 'string' ? style : 'smart_contextual';
+  const visionContext = await seeObjectAndGenerateBackgroundPrompt(
+    cleanedProductBuffer,
+    productSpec,
+    requestedStyleStr
+  );
+
+  const detectedCraft = visionContext.detectedCraft || productSpec?.productType || 'Artisan Craft';
+  console.log(
+    `[Studio] AI Vision identified object: "${detectedCraft}". Tailored background prompt: "${visionContext.backgroundPrompt}"`
+  );
+
+  // 3. Primary Method: Generative AI Background Generation (Diffusion model)
+  // Takes the real craft cutout and uses AI to generate the complementary background scene
+  const aiGenResult = await generateAIBackgroundFromCutout(
+    enhancedCutout,
+    visionContext.backgroundPrompt,
+    {
+      folder: 'shilpsetu_ai_studio',
+      timeoutMs: 25000,
+    }
+  );
+
+  if (aiGenResult) {
+    console.log(
+      `[Studio] ✅ AI Background generated successfully for "${detectedCraft}" via GenAI diffusion!`
+    );
+
+    // Ensure output conforms to target dimensions
+    const finalBuffer = await sharp(aiGenResult.buffer)
+      .resize(targetW, targetH, { fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer();
+
+    return {
+      studioBuffer: finalBuffer,
+      style: visionContext.surfaceType,
+      detectedCraft,
+      contextualBackdrop: `${detectedCraft} in AI-Generated Studio`,
+      method: 'ai_generative_background',
+      promptUsed: aiGenResult.promptUsed,
+    };
+  }
+
+  // 4. Resilient Fallback: High-Resolution Procedural Composite Backdrop
+  // (Used only if offline or GenAI service is unavailable)
+  console.log(
+    `[Studio] GenAI unavailable, falling back to seamless procedural composite studio...`
+  );
+
+  const contextual = resolveContextualStyle(productSpec, style);
   const backdrop = await createSeamlessStudioBackdrop(contextual.styleKey, targetW, targetH);
 
-  // 4. Composite enhanced craft onto contextual backdrop with multi-layer contact shadow
   const compositeBuffer = await compositeProductSeamlessly(
     enhancedCutout,
     backdrop,
@@ -278,7 +324,8 @@ export async function createSeamlessStudioBackdrop(
     .toBuffer();
 
   // Add subtle photographic noise grain for realism
-  baseBuffer = await addPhotographicGrain(baseBuffer, width, height);
+  const grainResult = await addPhotographicGrain(baseBuffer, width, height);
+  baseBuffer = Buffer.from(grainResult);
 
   backdropCache.set(cacheKey, baseBuffer);
   return baseBuffer;
@@ -843,7 +890,7 @@ export async function compositeProductSeamlessly(
   `;
   const poolBuffer = await sharp(Buffer.from(poolSvg)).blur(14).png().toBuffer();
 
-  const compositeLayers: sharp.OverlayOptions[] = [
+  const compositeLayers: OverlayOptions[] = [
     // Diffused ground shadow
     {
       input: poolBuffer,
