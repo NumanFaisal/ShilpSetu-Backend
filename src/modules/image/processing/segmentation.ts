@@ -14,6 +14,16 @@ export interface SegmentationResult {
 
 let poofBgCircuitOpenUntil = 0;
 let openAiSegmentationClient: OpenAI | null = null;
+let geminiSegmentationClient: GoogleGenAI | null = null;
+
+function getGeminiSegmentationClient(): GoogleGenAI | null {
+  const apiKey = env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  if (!geminiSegmentationClient) {
+    geminiSegmentationClient = new GoogleGenAI({ apiKey });
+  }
+  return geminiSegmentationClient;
+}
 
 function getOpenAISegmentationClient(): OpenAI | null {
   if (!env.OPENAI_API_KEY) return null;
@@ -140,6 +150,9 @@ export async function removeBackground(
 async function segmentWithGeminiVision(
   imageBuffer: Buffer
 ): Promise<SegmentationResult | null> {
+  const ai = getGeminiSegmentationClient();
+  if (!ai) return null;
+
   const meta = await sharp(imageBuffer).metadata();
   const origWidth = meta.width || 1200;
   const origHeight = meta.height || 1200;
@@ -150,7 +163,6 @@ async function segmentWithGeminiVision(
     .jpeg({ quality: 85 })
     .toBuffer();
 
-  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   const prompt = `You are a precision computer vision system for e-commerce artisan catalog photography.
 Detect the EXACT visual outer boundary of the SINGLE MAIN PRODUCT/CRAFT item in the foreground.
 CRITICAL RULES:
