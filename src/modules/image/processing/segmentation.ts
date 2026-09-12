@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import axios from 'axios';
 import FormData from 'form-data';
 import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 import { env } from '../../../config/env';
 import type { AbsoluteBoundingBox } from './detection';
 
@@ -12,6 +13,15 @@ export interface SegmentationResult {
 }
 
 let poofBgCircuitOpenUntil = 0;
+let openAiSegmentationClient: OpenAI | null = null;
+
+function getOpenAISegmentationClient(): OpenAI | null {
+  if (!env.OPENAI_API_KEY) return null;
+  if (!openAiSegmentationClient) {
+    openAiSegmentationClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  }
+  return openAiSegmentationClient;
+}
 
 /**
  * Removes the background from the original product photo,
@@ -19,7 +29,8 @@ let poofBgCircuitOpenUntil = 0;
  *
  * Tier 1: Poof.bg AI Background Removal (~100ms, dedicated product-removal API)
  * Tier 2: Gemini Vision AI Precision Polygon Segmentation (fallback if no poof.bg key)
- * Tier 3: Adaptive Perimeter Edge & Color Segmentation (offline/last-resort)
+ * Tier 3: OpenAI Vision AI Precision Polygon Segmentation (instant fallback if Poof / Gemini fail)
+ * Tier 4: Adaptive Perimeter Edge & Color Segmentation (offline/last-resort)
  */
 export async function removeBackground(
   imageBuffer: Buffer,
@@ -103,7 +114,21 @@ export async function removeBackground(
     }
   }
 
-  // Method 3: Adaptive perimeter flood-fill segmentation (offline last resort)
+  // Method 3: OpenAI Vision AI Precision Contour Segmentation (instant fallback if Poof / Gemini fail)
+  if (env.OPENAI_API_KEY) {
+    try {
+      console.log('[Segmentation] Falling back instantly to OpenAI Vision AI contour segmentation...');
+      const openAiResult = await segmentWithOpenAIVision(imageBuffer);
+      if (openAiResult) {
+        console.log('[Segmentation] ✅ OpenAI Vision AI segmentation succeeded!');
+        return openAiResult;
+      }
+    } catch (err: any) {
+      console.warn('[Segmentation] OpenAI Vision AI segmentation failed:', err.message);
+    }
+  }
+
+  // Method 4: Adaptive perimeter flood-fill segmentation (offline last resort)
   console.log('[Segmentation] Running adaptive perimeter flood-fill segmentation...');
   return await performSmartForegroundSegmentation(imageBuffer, boundingBox);
 }
@@ -216,6 +241,130 @@ Respond ONLY with one valid JSON object:
     maskBuffer,
     method: 'gemini_vision_contour',
   };
+}
+
+/**
+ * Uses OpenAI Vision (gpt-4o / gpt-4o-mini) to trace a high-precision polygon boundary around the product,
+ * producing an exact cutout mask with smooth antialiased edges.
+ */
+async function segmentWithOpenAIVision(
+  imageBuffer: Buffer
+): Promise<SegmentationResult | null> {
+  const client = getOpenAISegmentationClient();
+  if (!client) return null;
+
+  const meta = await sharp(imageBuffer).metadata();
+  const origWidth = meta.width || 1200;
+  const origHeight = meta.height || 1200;
+
+  // Downscale to max 1024px for lightning-fast network transfer
+  const uploadBuffer = await sharp(imageBuffer)
+    .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+
+  const prompt = `You are a precision computer vision system for e-commerce artisan catalog photography.
+Detect the EXACT visual outer boundary of the SINGLE MAIN PRODUCT/CRAFT item in the foreground.
+CRITICAL RULES:
+1. Identify ONLY the craft/product itself.
+2. Completely EXCLUDE and REMOVE the background: tables, wooden desks, mats, bedsheets, blankets, floors, tiles, walls, room backgrounds, hands holding the item, loose objects, and cast shadows.
+3. Trace the outer boundary of the product tightly with a single closed polygon.
+4. Coordinates are normalized from 0 to 1000 where [0,0] is top-left and [1000, 1000] is bottom-right.
+5. Return 30 to 80 points to accurately hug curves, handles, and corners.
+
+Respond ONLY with one valid JSON object:
+{
+  "polygon": [
+    [x, y], ...
+  ]
+}`;
+
+  const models = ['gpt-4o', 'gpt-4o-mini'];
+  for (const model of models) {
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/jpeg;base64,${uploadBuffer.toString('base64')}`,
+                  detail: 'high',
+                },
+              },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 1500,
+      });
+
+      const text = response.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) continue;
+
+      const data = JSON.parse(match[0]);
+      const points: [number, number][] = data.polygon;
+
+      if (!Array.isArray(points) || points.length < 8) {
+        continue;
+      }
+
+      // Convert normalized [0..1000] points to original image pixel coordinates
+      const svgPoints = points
+        .map(([nx, ny]) => `${Math.round((nx / 1000) * origWidth)},${Math.round((ny / 1000) * origHeight)}`)
+        .join(' ');
+
+      const maskSvg = `<svg width="${origWidth}" height="${origHeight}" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="${svgPoints}" fill="#FFFFFF"/>
+      </svg>`;
+
+      // Rasterize smooth feathered mask
+      const smoothMask = await sharp(Buffer.from(maskSvg))
+        .resize(origWidth, origHeight)
+        .blur(1.5)
+        .toBuffer();
+
+      // Composite onto original image using dest-in to produce transparent cutout
+      let cutoutBuffer = await sharp(imageBuffer)
+        .ensureAlpha()
+        .composite([
+          {
+            input: smoothMask,
+            blend: 'dest-in',
+          },
+        ])
+        .png()
+        .toBuffer();
+
+      // Trim transparent margins
+      try {
+        cutoutBuffer = await sharp(cutoutBuffer)
+          .trim({
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+            threshold: 10,
+          })
+          .png()
+          .toBuffer();
+      } catch {}
+
+      const maskBuffer = await extractAlphaMask(cutoutBuffer);
+
+      return {
+        cutoutBuffer,
+        maskBuffer,
+        method: `openai_vision_${model}_contour`,
+      };
+    } catch (mErr: any) {
+      console.warn(`[Segmentation] OpenAI model ${model} failed: ${mErr.message}`);
+    }
+  }
+
+  return null;
 }
 
 /**

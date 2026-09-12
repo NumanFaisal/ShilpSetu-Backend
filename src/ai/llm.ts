@@ -154,20 +154,27 @@ export class LLMService {
 
     // 2. Try OpenAI
     if (this.openaiClient) {
-      try {
-        const model = options.model || 'gpt-4o-mini';
-        const response = await this.openaiClient.chat.completions.create({
-          model,
-          messages: messages as any[],
-          temperature,
-          max_tokens: options.maxTokens || 2048,
-          ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
-        });
+      const openAiModels = ['gpt-4o-mini', 'gpt-4o'];
+      const targetModel = options.model && (options.model.startsWith('gpt-') || options.model.startsWith('o1') || options.model.startsWith('o3'))
+        ? options.model
+        : 'gpt-4o-mini';
 
-        const content = response.choices?.[0]?.message?.content;
-        if (content) return content;
-      } catch (err: any) {
-        console.warn(`[LLM] OpenAI completion failed: ${err.message}. Trying fallback...`);
+      const modelsToTry = [targetModel, ...openAiModels.filter((m) => m !== targetModel)];
+      for (const model of modelsToTry) {
+        try {
+          const response = await this.openaiClient.chat.completions.create({
+            model,
+            messages: messages as any[],
+            temperature,
+            max_tokens: options.maxTokens || 2048,
+            ...(options.json ? { response_format: { type: 'json_object' as const } } : {}),
+          });
+
+          const content = response.choices?.[0]?.message?.content;
+          if (content) return content;
+        } catch (err: any) {
+          console.warn(`[LLM] OpenAI model ${model} failed: ${err.message}. Trying next fallback...`);
+        }
       }
     }
 

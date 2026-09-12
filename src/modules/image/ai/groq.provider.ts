@@ -35,7 +35,7 @@ export class GroqAIProvider implements ImageAIProvider {
     temperature?: number;
   }): Promise<string> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), 8_000);
 
     return fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
