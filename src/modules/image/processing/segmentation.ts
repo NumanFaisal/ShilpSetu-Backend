@@ -103,10 +103,10 @@ export async function removeBackground(
       }
     } catch (err: any) {
       console.warn(
-        '[Segmentation] Poof.bg API error/timeout, opening circuit breaker for 60s:',
+        '[Segmentation] Poof.bg API temporary warning (retrying in 10s):',
         err.message
       );
-      poofBgCircuitOpenUntil = Date.now() + 60_000;
+      poofBgCircuitOpenUntil = Date.now() + 10_000;
     }
   }
 

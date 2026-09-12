@@ -11,28 +11,52 @@ const PREVIEW_SIZE = 400;
  */
 const STYLES = [
   {
+    id: 'smart_contextual',
+    name: '✨ Smart AI Craft Studio (Recommended)',
+    description: 'Auto-detects your craft (pottery, brass, handloom, wood, jewelry) and renders an authentic matching backdrop.',
+    previewColor: '#C26D43',
+  },
+  {
+    id: 'botanical_lifestyle',
+    name: '🌿 Lifestyle Studio with Botanical Elements',
+    description: 'Warm natural tabletop with soft cream wall, gentle morning window light, and an aesthetic potted green plant in the soft background.',
+    previewColor: '#527C44',
+  },
+  {
+    id: 'artisan_workshop',
+    name: '🪵 Rustic Artisan Workshop',
+    description: 'Warm teakwood workbench with natural wood grain and soft morning daylight. Ideal for handmade pottery, woodcraft, and terracotta.',
+    previewColor: '#A67B4B',
+  },
+  {
+    id: 'heritage_courtyard',
+    name: '🏛️ Heritage Indian Courtyard',
+    description: 'Traditional carved sandstone archway with warm ambient lighting. Accentuates brassware, bronze, and festive temple crafts.',
+    previewColor: '#BD8253',
+  },
+  {
+    id: 'luxury_showcase',
+    name: '💎 Luxury Marble Showcase',
+    description: 'Polished Carrara marble with fine veining and soft editorial spotlight. Perfect for jewelry, silver, and premium decorative items.',
+    previewColor: '#E5E3DF',
+  },
+  {
+    id: 'clean_marketplace',
+    name: '📦 Clean Marketplace Studio',
+    description: 'Clean white cyclorama with soft ambient diffusion and grounded contact reflection. Perfect for Amazon & Flipkart.',
+    previewColor: '#F5F6F8',
+  },
+  {
     id: 'white_studio',
     name: 'White Studio',
-    description: 'Clean white cyclorama with soft diffused lighting. Perfect for Amazon, Flipkart, and general e-commerce.',
+    description: 'Clean white cyclorama with soft diffused lighting.',
     previewColor: '#F5F6F8',
   },
   {
     id: 'wooden_surface',
     name: 'Wooden Surface',
-    description: 'Warm teak wood tabletop with natural grain and soft directional lighting. Ideal for handmade and artisan products.',
+    description: 'Warm teak wood tabletop with natural grain.',
     previewColor: '#A67B4B',
-  },
-  {
-    id: 'marble_surface',
-    name: 'Marble Surface',
-    description: 'Luxurious Carrara marble with subtle gray veining and polished sheen. Great for jewelry, cosmetics, and premium products.',
-    previewColor: '#E5E3DF',
-  },
-  {
-    id: 'luxury',
-    name: 'Luxury Dark',
-    description: 'Dark editorial studio backdrop with golden rim lighting. Perfect for high-end and luxury product photography.',
-    previewColor: '#1E222A',
   },
 ] as const;
 

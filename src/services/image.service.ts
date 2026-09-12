@@ -6,6 +6,14 @@ import type { ImageJobData } from '../jobs/queues';
 import type { CreateBatchInput } from '../modules/image/image.types';
 
 const ALLOWED_STYLES = [
+  'smart_contextual',
+  'botanical_lifestyle',
+  'artisan_workshop',
+  'heritage_courtyard',
+  'luxury_showcase',
+  'clean_marketplace',
+  'pottery_terracotta',
+  'textile_handloom',
   'white_studio',
   'wooden_surface',
   'marble_surface',

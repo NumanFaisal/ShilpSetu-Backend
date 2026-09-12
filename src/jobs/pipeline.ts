@@ -48,7 +48,7 @@ export class ImagePipeline {
    * Main pipeline executor for a single product image job.
    */
   async processImage(jobData: ImageJobData): Promise<void> {
-    const { imageId, batchId, userId, originalKey, style = 'wooden_surface' } = jobData;
+    const { imageId, batchId, userId, originalKey, style = 'smart_contextual' } = jobData;
     const startTime = Date.now();
 
     try {
