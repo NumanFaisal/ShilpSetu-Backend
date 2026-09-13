@@ -131,7 +131,7 @@ export class LLMService {
           .join('\n\n');
 
         const prompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
-        const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+        const geminiModels = ['gemini-3.6-flash'];
 
         for (const model of geminiModels) {
           try {

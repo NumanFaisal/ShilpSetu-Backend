@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { r2 } from '../lib/r2';
 import { db } from '../prisma/db';
 import { imageProcessingQueue } from '../jobs/queues';
+import { imagePipeline } from '../jobs/pipeline';
 import type { ImageJobData } from '../jobs/queues';
 import type { CreateBatchInput } from '../modules/image/image.types';
 
@@ -21,14 +22,13 @@ const ALLOWED_STYLES = [
 ];
 
 export class ImageService {
-  // ──────────────────────────────────────────────
+  
   //  Direct multipart upload path
-  // ──────────────────────────────────────────────
 
   /**
    * Handles direct file upload: saves files to R2, creates DB records,
    * and enqueues background processing jobs.
-   */
+  */
   async createBatchWithFiles(
     userId: number,
     files: Express.Multer.File[],
@@ -77,10 +77,19 @@ export class ImageService {
           productId: options.productId,
         });
 
-        // Rely solely on imageProcessingQueue for processing (configured with retry/backoff)
-        await imageProcessingQueue.add(`process-${batch.id}-${imageId}`, jobData, {
+        // 1. Queue to BullMQ (for worker if Redis is available)
+        imageProcessingQueue.add(`process-${batch.id}-${imageId}`, jobData, {
           attempts: 2,
           removeOnComplete: true,
+        }).catch((queueErr) => {
+          console.warn('[ImageService] Redis queue warning:', queueErr?.message);
+        });
+
+        // 2. Guaranteed in-process pipeline runner (ensures image processes immediately even if Redis is disconnected)
+        setImmediate(() => {
+          imagePipeline.processImage(jobData).catch((pipelineErr) => {
+            console.error(`[ImageService] Direct pipeline error for ${imageId}:`, pipelineErr?.message || pipelineErr);
+          });
         });
 
         enqueuedImages.push({ imageId, storageKey });
@@ -95,9 +104,8 @@ export class ImageService {
     };
   }
 
-  // ──────────────────────────────────────────────
+  
   //  Presigned upload session path
-  // ──────────────────────────────────────────────
 
   /**
    * Creates a batch and generates presigned R2 upload URLs for client-side upload.
@@ -196,6 +204,21 @@ export class ImageService {
       } catch (queueErr: any) {
         console.warn('[ImageService] Redis queue warning:', queueErr?.message);
       }
+
+      // Guaranteed in-process pipeline runner
+      const jobData = this.buildJobData({
+        batchId,
+        imageId: image.id,
+        userId,
+        originalKey: image.originalKey,
+        style: batch.style,
+        productId: batch.productId ?? undefined,
+      });
+      setImmediate(() => {
+        imagePipeline.processImage(jobData).catch((pipelineErr) => {
+          console.error(`[ImageService] Direct pipeline error for ${image.id}:`, pipelineErr?.message || pipelineErr);
+        });
+      });
 
       enqueuedCount++;
     }
@@ -300,22 +323,31 @@ export class ImageService {
       throw new Error('Only failed images can be retried');
     }
 
-    await imageProcessingQueue.add(
+    const jobData = this.buildJobData({
+      batchId,
+      imageId,
+      userId,
+      originalKey: claimed.originalKey,
+      style: batch.style,
+      productId: batch.productId ?? undefined,
+      isRetry: true,
+    });
+
+    imageProcessingQueue.add(
       `retry-${batchId}-${imageId}`,
-      this.buildJobData({
-        batchId,
-        imageId,
-        userId,
-        originalKey: claimed.originalKey,
-        style: batch.style,
-        productId: batch.productId ?? undefined,
-        isRetry: true,
-      }),
+      jobData,
       {
         attempts: 3,
         backoff: { type: 'exponential', delay: 2000 },
       }
-    );
+    ).catch(() => {});
+
+    // Guaranteed direct execution fallback
+    setImmediate(() => {
+      imagePipeline.processImage(jobData).catch((pipelineErr) => {
+        console.error(`[ImageService] Direct pipeline error for retry ${imageId}:`, pipelineErr?.message || pipelineErr);
+      });
+    });
 
     return { imageId, status: 'QUEUED' };
   }

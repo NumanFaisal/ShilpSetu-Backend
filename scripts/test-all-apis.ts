@@ -68,7 +68,8 @@ async function main() {
     const res = await fetch(`${BASE_URL}/api/studio-styles`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) throw new Error('Invalid styles');
+    const stylesList = Array.isArray(data) ? data : data?.styles;
+    if (!Array.isArray(stylesList) || stylesList.length === 0) throw new Error('Invalid styles');
   });
 
   // 5. AI Catalog Generation

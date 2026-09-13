@@ -236,7 +236,7 @@ export class SpeechToTextService {
 
     // ─── 3. Try Gemini Multimodal Audio (Native Audio Understanding) ────────
     if (this.geminiClient) {
-      const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+      const geminiModels = ['gemini-3.6-flash'];
       for (const model of geminiModels) {
         try {
           const response = await this.geminiClient.models.generateContent({

@@ -93,7 +93,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
   // ─── Gemini API (gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash) ───
   const gemini = getGeminiClient();
   if (gemini) {
-    const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const geminiModels = ['gemini-3.6-flash'];
     for (const model of geminiModels) {
       try {
         console.log(`[Vision AI] Inspecting craft object with Gemini API (${model})...`);

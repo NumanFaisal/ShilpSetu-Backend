@@ -107,7 +107,7 @@ SCHEMA (all fields required; use "unknown" for a string field or [] for an array
 }`;
 
     const genPromise = ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents: [
         {
           role: 'user',
@@ -117,7 +117,7 @@ SCHEMA (all fields required; use "unknown" for a string field or [] for an array
     });
 
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini analyzeProduct timed out after 6000ms')), 6000)
+      setTimeout(() => reject(new Error('Gemini analyzeProduct timed out after 9000ms')), 9000)
     );
 
     const response: any = await Promise.race([genPromise, timeoutPromise]);
@@ -205,7 +205,7 @@ RULES
 - Output must be parseable by JSON.parse() with no modification.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents: [
         {
           role: 'user',
@@ -371,7 +371,7 @@ Respond ONLY with one valid JSON object. No Markdown, no code fences, no comment
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: [
           {
             role: 'user',
@@ -435,7 +435,7 @@ Respond ONLY with valid JSON:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: [
           {
             role: 'user',

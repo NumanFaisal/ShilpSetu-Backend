@@ -169,7 +169,7 @@ export class AIService {
           batchId: options?.batchId,
           imageId: options?.imageId,
           provider: provider.name,
-          model: provider.name === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o',
+          model: provider.name === 'gemini' ? 'gemini-3.6-flash' : 'gpt-4o',
           operation: 'analysis',
           durationMs: Date.now() - start,
           success: true,

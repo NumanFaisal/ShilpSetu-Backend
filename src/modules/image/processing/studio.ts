@@ -240,6 +240,9 @@ export async function generateGeminiStudioBackground(
       }
     } catch (err: any) {
       console.warn(`[Studio] Gemini API Imagen error (${model}):`, err?.message || err);
+      if (err?.message?.includes('Gemini Enterprise Agent Platform') || err?.message?.includes('Vertex AI')) {
+        break;
+      }
     }
   }
 

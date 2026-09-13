@@ -14,17 +14,11 @@ export function startImageProcessingWorker() {
   const worker = new Worker<ImageJobData>(
     IMAGE_PROCESSING_QUEUE_NAME,
     async (job) => {
-      // Atomic claim: only claim and transition if status is currently QUEUED or PENDING
-      const claimed = await db.orm.public.ProductImage
-        .where((img) => img.id.eq(job.data.imageId))
-        .where((img) => img.status.in(['QUEUED', 'PENDING']))
-        .update({
-          status: 'PROCESSING',
-        });
-
-      if (!claimed) {
+      // Safe check: skip only if already completed
+      const existing = await db.orm.public.ProductImage.where({ id: job.data.imageId }).first();
+      if (!existing || existing.status === 'COMPLETED') {
         console.log(
-          `[Worker] Image ${job.data.imageId} already claimed or completed. Skipping redundant processing for job ${job.id}.`
+          `[Worker] Image ${job.data.imageId} is already completed. Skipping redundant execution for job ${job.id}.`
         );
         return;
       }
