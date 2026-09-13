@@ -38,9 +38,8 @@ function getOpenAISegmentationClient(): OpenAI | null {
  * producing a clean transparent cutout (PNG with alpha).
  *
  * Tier 1: Poof.bg AI Background Removal (~100ms, dedicated product-removal API)
- * Tier 2: Gemini Vision AI Precision Polygon Segmentation (fallback if no poof.bg key)
- * Tier 3: OpenAI Vision AI Precision Polygon Segmentation (instant fallback if Poof / Gemini fail)
- * Tier 4: Adaptive Perimeter Edge & Color Segmentation (offline/last-resort)
+ * Tier 2: OpenAI Vision AI Precision Polygon Segmentation (only AI fallback if Poof.bg fails or unavailable)
+ * Tier 3: Adaptive Perimeter Edge & Color Segmentation (offline/last-resort)
  */
 export async function removeBackground(
   imageBuffer: Buffer,
@@ -110,7 +109,7 @@ export async function removeBackground(
     }
   }
 
-  // Method 2: OpenAI Vision AI Precision Contour Segmentation (first AI fallback)
+  // Method 2: OpenAI Vision AI Precision Contour Segmentation (only AI fallback when Poof.bg is unavailable/fails)
   if (env.OPENAI_API_KEY) {
     try {
       console.log('[Segmentation] Falling back to OpenAI Vision AI contour segmentation...');
@@ -120,25 +119,11 @@ export async function removeBackground(
         return openAiResult;
       }
     } catch (err: any) {
-      console.warn('[Segmentation] OpenAI Vision AI segmentation failed, cascading to Gemini:', err.message);
+      console.warn('[Segmentation] OpenAI Vision AI segmentation failed:', err.message);
     }
   }
 
-  // Method 3: Gemini Vision AI Precision Contour Segmentation (second AI fallback)
-  if (env.GEMINI_API_KEY) {
-    try {
-      console.log('[Segmentation] Falling back to Gemini Vision AI contour segmentation...');
-      const geminiResult = await segmentWithGeminiVision(imageBuffer);
-      if (geminiResult) {
-        console.log('[Segmentation] ✅ Gemini Vision AI segmentation succeeded!');
-        return geminiResult;
-      }
-    } catch (err: any) {
-      console.warn('[Segmentation] Gemini Vision AI segmentation failed:', err.message);
-    }
-  }
-
-  // Method 4: Adaptive perimeter flood-fill segmentation (offline last resort)
+  // Method 3: Adaptive perimeter flood-fill segmentation (offline last resort)
   console.log('[Segmentation] Running adaptive perimeter flood-fill segmentation...');
   return await performSmartForegroundSegmentation(imageBuffer, boundingBox);
 }

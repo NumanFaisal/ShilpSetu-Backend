@@ -12,6 +12,7 @@ export interface PricingEstimateInput {
   materialCost: number;
   labourHours: number;
   wageRate?: number;
+  labourCost?: number;
   quantity?: number;
   debug?: boolean | string;
   productId?: number;
@@ -237,7 +238,10 @@ export class PricingService {
     const complexityInfo = this.getComplexityMultiplier(input.craftComplexity);
 
     // 1. Calculate Minimum Base Cost
-    const standardLaborCost = Math.round(hours * wageRate);
+    // Support direct labourCost input, or compute from hours * wageRate
+    const standardLaborCost = input.labourCost != null && !isNaN(Number(input.labourCost)) && Number(input.labourCost) > 0
+      ? Math.round(Number(input.labourCost))
+      : Math.round(hours * wageRate);
     const complexityPremium = Math.round(standardLaborCost * (complexityInfo.factor - 1.0));
     const totalLaborCost = standardLaborCost + complexityPremium;
     const baseCost = Math.round(matCost + totalLaborCost);
@@ -250,8 +254,6 @@ export class PricingService {
 
     // Sort entries by key length descending so more specific craft terms (e.g. 'chanderi', 'bluepottery', 'carving')
     // are checked before shorter/more generic ones (e.g. 'silk', 'pottery', 'wood').
-    // Without descending sort, object-insertion order causes 'Chanderi Silk Saree' to match 'silk' first.
-    // We also exclude 'handicraft' from specific scanning since it serves as the ultimate fallback.
     const sortedBenchmarks = Object.entries(CRAFT_BENCHMARKS)
       .filter(([key]) => key !== 'handicraft')
       .sort(([keyA], [keyB]) => keyB.length - keyA.length);
@@ -260,7 +262,6 @@ export class PricingService {
     let benchmark = CRAFT_BENCHMARKS['handicraft'];
 
     for (const [key, bm] of sortedBenchmarks) {
-      // Word boundary regex prevents partial token matches (e.g. "wood" matching inside unrelated words like "plywood")
       const wordRegex = new RegExp(`\\b${key}\\b`, 'i');
       if (wordRegex.test(craftKey) || compactKey.includes(key)) {
         benchmark = bm;
@@ -272,22 +273,36 @@ export class PricingService {
     const allPricePoints: Array<{ marketplace: string; price: number; title: string; url: string }> = [];
     const sources: PriceSource[] = [];
 
-    const coreQuery = `${input.name || input.category || 'Indian handicraft'} price in India`;
+    const productSearchTerm = [input.name, input.category, input.material].filter(Boolean).join(' ');
+    const coreQuery = `${productSearchTerm || 'Indian handicraft'} price buy online India`;
 
     if (env.TAVILY_API_KEY || process.env['TAVILY_API_KEY']) {
       const allDomains = MARKETPLACES.flatMap((mp) => mp.domains);
-      const results = await this.searchTavily(coreQuery, allDomains);
+      let results = await this.searchTavily(coreQuery, allDomains);
 
-      const resolveMarketplace = (url: string = '') => {
-        const lower = url.toLowerCase();
+      // If domain-restricted search was sparse, run broader shopping search to catch real products
+      if (results.length < 3) {
+        const broadQuery = `${productSearchTerm || 'Indian handicraft'} price amazon in flipkart meesho buy online`;
+        const broadResults = await this.searchTavily(broadQuery, []);
+        results = [...results, ...broadResults];
+      }
+
+      const resolveMarketplace = (url: string = '', title: string = '') => {
+        const lower = `${url} ${title}`.toLowerCase();
         for (const mp of MARKETPLACES) {
-          if (mp.domains.some((d) => lower.includes(d))) return mp.id;
+          if (mp.domains.some((d) => lower.includes(d)) || lower.includes(mp.id.toLowerCase())) {
+            return mp.id;
+          }
         }
         return 'Online';
       };
 
+      const seenUrls = new Set<string>();
       for (const r of results) {
-        const mpName = resolveMarketplace(r.url);
+        if (!r.url || seenUrls.has(r.url)) continue;
+        seenUrls.add(r.url);
+
+        const mpName = resolveMarketplace(r.url, r.title);
         const prices = this.extractPrices(`${r.title || ''} ${r.content || ''}`);
         for (const p of prices) {
           allPricePoints.push({ marketplace: mpName, price: p, title: r.title, url: r.url });
@@ -298,49 +313,58 @@ export class PricingService {
       }
     }
 
-    // 4. Calculate market statistics (combining live search with benchmark matrix)
+    // 4. Calculate real market statistics strictly from actual search results
     let marketMin = benchmark.min;
     let marketMax = benchmark.max;
     let medianPrice = benchmark.median;
     const pricingSource: 'live_search' | 'benchmark_fallback' =
-      allPricePoints.length >= 3 ? 'live_search' : 'benchmark_fallback';
+      allPricePoints.length >= 2 ? 'live_search' : 'benchmark_fallback';
 
     if (pricingSource === 'live_search') {
       const sortedPrices = allPricePoints.map((i) => i.price).sort((a, b) => a - b);
-      const med = sortedPrices[Math.floor(sortedPrices.length / 2)];
-      // Outlier filtering
-      const filtered = sortedPrices.filter((p) => p >= med / 3 && p <= med * 3);
-      if (filtered.length) {
-        marketMin = Math.min(...filtered);
-        marketMax = Math.max(...filtered);
-        medianPrice = filtered[Math.floor(filtered.length / 2)];
+      // Filter extreme non-price outliers (e.g. less than ₹80 or > ₹100,000)
+      const validPrices = sortedPrices.filter(p => p >= 80 && p <= 100000);
+      if (validPrices.length) {
+        // REAL market min and max directly from actual internet listings (NOT AI generated):
+        marketMin = validPrices[0];
+        marketMax = validPrices[validPrices.length - 1];
+        medianPrice = validPrices[Math.floor(validPrices.length / 2)];
       }
     }
 
-    // Ensure market range always covers base cost with viable margin
-    if (marketMin < baseCost * 1.15) {
-      marketMin = Math.round(baseCost * 1.25);
-    }
-    if (marketMax <= marketMin) {
-      marketMax = Math.round(marketMin * 1.8);
-    }
-
-    // 5. Build marketplace breakdown
-    const marketplaceBreakdown: MarketplacePricePoint[] = [
-      { marketplace: 'Amazon', avgPrice: Math.round(medianPrice * 1.15), listingsFound: 14 },
-      { marketplace: 'Flipkart', avgPrice: Math.round(medianPrice * 1.02), listingsFound: 11 },
-      { marketplace: 'Meesho', avgPrice: Math.round(medianPrice * 0.78), listingsFound: 18 },
-      { marketplace: 'IndiaMART', avgPrice: Math.round(medianPrice * 0.65), listingsFound: 7 },
-      { marketplace: 'Etsy', avgPrice: Math.round(medianPrice * 1.65), listingsFound: 6 },
-    ];
+    // 5. Build marketplace breakdown from real listings if available
+    const marketplaceBreakdown: MarketplacePricePoint[] = MARKETPLACES.map(mp => {
+      const mpPoints = allPricePoints.filter(p => p.marketplace === mp.id);
+      if (mpPoints.length > 0) {
+        const sum = mpPoints.reduce((acc, curr) => acc + curr.price, 0);
+        return {
+          marketplace: mp.id,
+          avgPrice: Math.round(sum / mpPoints.length),
+          listingsFound: mpPoints.length,
+        };
+      }
+      const ratio = mp.id === 'Amazon' ? 1.15 : mp.id === 'Flipkart' ? 1.02 : mp.id === 'Meesho' ? 0.78 : mp.id === 'IndiaMART' ? 0.65 : 1.65;
+      return {
+        marketplace: mp.id,
+        avgPrice: Math.round(medianPrice * ratio),
+        listingsFound: 0,
+      };
+    });
 
     // 6. Compute Recommended Retail Price & Margin Breakdown
-    // Recommended price targets sweet-spot between fair margin (40%+) and median market price
-    const suggestedTarget = Math.max(
-      Math.round(baseCost * 1.45),
-      Math.min(marketMax, Math.round((medianPrice + baseCost * 1.5) / 2))
-    );
-    const suggested = Math.max(marketMin, Math.min(marketMax, suggestedTarget));
+    // Recommended price provides sustainable artisan profit over baseCost
+    const fairCostWithMargin = Math.round(baseCost * 1.35); // 35% margin over direct costs
+    let suggested: number;
+
+    if (pricingSource === 'live_search') {
+      if (fairCostWithMargin <= marketMax) {
+        suggested = Math.max(fairCostWithMargin, Math.min(marketMax, Math.round((medianPrice + fairCostWithMargin) / 2)));
+      } else {
+        suggested = fairCostWithMargin;
+      }
+    } else {
+      suggested = Math.max(marketMin, Math.min(marketMax, Math.max(fairCostWithMargin, medianPrice)));
+    }
 
     const packagingAndBuffer = Math.round(suggested * 0.1); // 10% buffer
     const artisanProfit = Math.max(0, suggested - baseCost - packagingAndBuffer);
@@ -360,8 +384,10 @@ export class PricingService {
       recommendedPrice: suggested,
     };
 
-    // 7. AI Reasoning
-    let reasoning = `Recommended price of ₹${suggested} ensures a healthy ${profitPercentage}% profit margin (₹${artisanProfit}) above your ₹${baseCost} production cost, while competing comfortably against commercial e-commerce averages (₹${marketMin}–₹${marketMax}).`;
+    // 7. Reasoning
+    let reasoning = pricingSource === 'live_search'
+      ? `Real internet search across Indian e-commerce found matching listings from ₹${marketMin} to ₹${marketMax}. Recommended price of ₹${suggested} covers your ₹${matCost} product cost and ₹${standardLaborCost} labour cost with a fair ${profitPercentage}% net profit (₹${artisanProfit}).`
+      : `Based on verified Indian craft benchmarks (₹${marketMin}–₹${marketMax}), recommended price of ₹${suggested} ensures a healthy ${profitPercentage}% profit margin (₹${artisanProfit}) above your ₹${baseCost} base production cost.`;
 
     try {
       const llmPayload = JSON.stringify({
