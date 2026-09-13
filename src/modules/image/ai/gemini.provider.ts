@@ -106,8 +106,8 @@ SCHEMA (all fields required; use "unknown" for a string field or [] for an array
   "preservationRules": string[]          // specific, image-grounded — see IDENTITY PRESERVATION above
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+    const genPromise = ai.models.generateContent({
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -115,6 +115,12 @@ SCHEMA (all fields required; use "unknown" for a string field or [] for an array
         },
       ],
     });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Gemini analyzeProduct timed out after 6000ms')), 6000)
+    );
+
+    const response: any = await Promise.race([genPromise, timeoutPromise]);
 
     const responseText = response.text || '';
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -199,7 +205,7 @@ RULES
 - Output must be parseable by JSON.parse() with no modification.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -262,16 +268,29 @@ RULES
     const prompt = `Product photography studio scene. Product: ${productDesc}. Background environment: ${chosenStyle}. The product is centered on the surface with a subtle soft contact shadow beneath it. Photorealistic, commercial e-commerce quality, no text, no watermark. The background should be clean and professional without any props or clutter.`;
 
     try {
-      // Try Imagen first
-      const response = await ai.models.generateImages({
-        model: 'imagen-4.0-fast-generate-001',
-        prompt,
-        config: {
-          numberOfImages: 1,
-          aspectRatio: '1:1',
-          outputMimeType: 'image/jpeg',
-        },
-      });
+      // Try Imagen via Gemini API
+      let response: any;
+      try {
+        response = await ai.models.generateImages({
+          model: 'imagen-3.0-generate-002',
+          prompt,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: '1:1',
+            outputMimeType: 'image/jpeg',
+          },
+        });
+      } catch {
+        response = await ai.models.generateImages({
+          model: 'imagen-3.0-fast-generate-001',
+          prompt,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: '1:1',
+            outputMimeType: 'image/jpeg',
+          },
+        });
+      }
 
       const generatedImages = response.generatedImages;
       if (generatedImages && generatedImages.length > 0 && generatedImages[0]?.image?.imageBytes) {
@@ -281,7 +300,7 @@ RULES
         return {
           imageBuffer: buffer,
           promptUsed: prompt,
-          model: 'imagen-4.0-fast-generate-001',
+          model: 'imagen-3.0-generate-002',
         };
       }
     } catch (err: any) {
@@ -352,7 +371,7 @@ Respond ONLY with one valid JSON object. No Markdown, no code fences, no comment
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
@@ -416,7 +435,7 @@ Respond ONLY with valid JSON:
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+        model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',

@@ -1,6 +1,5 @@
 import { GeminiAIProvider } from './gemini.provider';
 import { GroqAIProvider } from './groq.provider';
-import { OpenAIAIProvider } from './openai.provider';
 import type {
   ImageAIProvider,
   ProductSpecification,
@@ -17,11 +16,7 @@ export class AIService {
   private primaryProviderName: string = 'gemini';
 
   constructor() {
-    // Priority: OpenAI (first) → Gemini (second) → Groq (third)
-    if (env.OPENAI_API_KEY) {
-      this.providers.set('openai', new OpenAIAIProvider());
-    }
-
+    // Primary: Gemini API exclusively for Image AI (per user specification)
     if (env.GEMINI_API_KEY) {
       this.providers.set('gemini', new GeminiAIProvider());
     }
@@ -30,10 +25,8 @@ export class AIService {
       this.providers.set('groq', new GroqAIProvider());
     }
 
-    // Set primary based on what's available (OpenAI first, then Gemini, then Groq)
-    if (this.providers.has('openai')) {
-      this.primaryProviderName = 'openai';
-    } else if (this.providers.has('gemini')) {
+    // Set Gemini as the primary provider
+    if (this.providers.has('gemini')) {
       this.primaryProviderName = 'gemini';
     } else if (this.providers.has('groq')) {
       this.primaryProviderName = 'groq';

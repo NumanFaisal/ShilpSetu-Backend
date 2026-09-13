@@ -13,6 +13,9 @@ export interface LightingOptions {
     primaryColors?: string[];
     texture?: string;
     productType?: string;
+    brightness?: number;
+    contrast?: number;
+    saturation?: number;
   };
 }
 
@@ -29,9 +32,9 @@ export async function enhanceCraftCutout(
   const material = (productHints?.material || '').toLowerCase();
   const productType = (productHints?.productType || '').toLowerCase();
 
-  let brightness = 1.05;
-  let saturation = 1.10;
-  let contrast = 1.08;
+  let brightness = productHints?.brightness ?? 1.05;
+  let saturation = productHints?.saturation ?? 1.10;
+  let contrast = productHints?.contrast ?? 1.08;
   let sharpenSigma = 1.3;
   let sharpenM1 = 1.6;
   let sharpenM2 = 0.5;
@@ -172,4 +175,26 @@ export async function adjustLightingAndExposure(
   }
 
   return result.png().toBuffer();
+}
+
+/**
+ * Enhances the craft image using Gemini API vision analysis to optimize lighting,
+ * contrast, dye vibrance, and texture clarity according to the authentic artisan craft.
+ */
+export async function enhanceCraftImageWithGemini(
+  imageBuffer: Buffer,
+  productHints?: LightingOptions['productHints']
+): Promise<Buffer> {
+  try {
+    const adjustment = await aiService.analyzeLighting(imageBuffer);
+    return enhanceCraftCutout(imageBuffer, {
+      ...productHints,
+      brightness: adjustment.brightness,
+      contrast: adjustment.contrast,
+      saturation: adjustment.saturation,
+    });
+  } catch (err: any) {
+    console.warn('[Lighting] Gemini enhancement fallback to craft heuristics:', err?.message || err);
+    return enhanceCraftCutout(imageBuffer, productHints);
+  }
 }

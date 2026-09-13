@@ -121,7 +121,45 @@ export class LLMService {
   ): Promise<string> {
     const temperature = options.temperature ?? 0.3;
 
-    // 1. Try Groq first (high speed, free tier)
+    // 1. Try Gemini first (Primary provider per user request)
+    if (this.geminiClient) {
+      try {
+        const systemMsg = messages.find((m) => m.role === 'system')?.content || '';
+        const userMsg = messages
+          .filter((m) => m.role !== 'system')
+          .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+          .join('\n\n');
+
+        const prompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
+        const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+        for (const model of geminiModels) {
+          try {
+            const response = await this.geminiClient.models.generateContent({
+              model,
+              contents: prompt,
+              config: {
+                temperature,
+                ...(options.json ? { responseMimeType: 'application/json' } : {}),
+              },
+            });
+
+            const text =
+              typeof response.text === 'function'
+                ? response.text()
+                : (response.text || response.candidates?.[0]?.content?.parts?.[0]?.text);
+
+            if (text) return text;
+          } catch (mErr: any) {
+            console.warn(`[LLM] Gemini model ${model} failed: ${mErr.message}`);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[LLM] Gemini completion failed: ${err.message}. Trying fallback...`);
+      }
+    }
+
+    // 2. Try Groq (high speed fallback)
     if (this.groqClient) {
       try {
         const availableGroq = await this.getAvailableGroqModels();
@@ -152,7 +190,7 @@ export class LLMService {
       }
     }
 
-    // 2. Try OpenAI
+    // 3. Try OpenAI as last resort
     if (this.openaiClient) {
       const openAiModels = ['gpt-4o-mini', 'gpt-4o'];
       const targetModel = options.model && (options.model.startsWith('gpt-') || options.model.startsWith('o1') || options.model.startsWith('o3'))
@@ -173,50 +211,12 @@ export class LLMService {
           const content = response.choices?.[0]?.message?.content;
           if (content) return content;
         } catch (err: any) {
-          console.warn(`[LLM] OpenAI model ${model} failed: ${err.message}. Trying next fallback...`);
+          console.warn(`[LLM] OpenAI model ${model} failed: ${err.message}.`);
         }
       }
     }
 
-    // 3. Try Gemini
-    if (this.geminiClient) {
-      try {
-        const systemMsg = messages.find((m) => m.role === 'system')?.content || '';
-        const userMsg = messages
-          .filter((m) => m.role !== 'system')
-          .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
-          .join('\n\n');
-
-        const prompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
-        const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-
-        for (const model of geminiModels) {
-          try {
-            const response = await this.geminiClient.models.generateContent({
-              model,
-              contents: prompt,
-              config: {
-                temperature,
-                ...(options.json ? { responseMimeType: 'application/json' } : {}),
-              },
-            });
-
-            const text =
-              typeof response.text === 'function'
-                ? response.text()
-                : (response.text || response.candidates?.[0]?.content?.parts?.[0]?.text);
-
-            if (text) return text;
-          } catch (mErr: any) {
-            console.warn(`[LLM] Gemini model ${model} failed: ${mErr.message}`);
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[LLM] Gemini completion failed: ${err.message}`);
-      }
-    }
-
-    throw new Error('All configured AI providers (Groq, OpenAI, Gemini) failed to generate response.');
+    throw new Error('All configured AI providers (Gemini, Groq, OpenAI) failed to generate response.');
   }
 
   /**

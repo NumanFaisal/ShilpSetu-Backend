@@ -36,7 +36,7 @@ export function startImageProcessingWorker() {
     },
     {
       connection: createRedisConnection(),
-      concurrency: 4,
+      concurrency: 8,
     }
   );
 

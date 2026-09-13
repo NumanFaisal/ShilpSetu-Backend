@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import sharp from 'sharp';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../../../config/env';
 import type { ProductSpecification } from './ai.types';
@@ -10,34 +10,44 @@ export interface CraftVisionBackgroundContext {
   surfaceType: string;
 }
 
-const CRAFT_BACKGROUND_DESIGN_PROMPT = `You are an art director and commercial product photographer for authentic handcrafted goods.
+const CRAFT_BACKGROUND_DESIGN_PROMPT = `You are an art director and commercial product photographer specializing in authentic Indian artisan handicrafts and e-commerce listings.
 
 TASK
-Look at the isolated craft product cutout in this image and design a complementary lifestyle background for it — one that suits THIS specific product's material, color, and craft tradition, not a generic template.
+Look at the isolated craft product in this image and design a tailored, photorealistic lifestyle/studio background that genuinely honors this specific product's craft tradition, material, texture, and cultural aesthetic — not a one-size-fits-all template.
 
 STEP 1 — IDENTIFY
-- detectedCraft: object name and craft type (e.g. "woven cane basket", "terracotta vase", "brass peacock lamp", "handloom textile")
-- craftMaterial: primary material and texture (e.g. "unglazed terracotta, coarse matte surface")
+- detectedCraft: specific object name and craft type where identifiable (e.g. "Madhubani Painted Terracotta Vase", "Chanderi Handloom Silk Saree", "Dhokra Brass Tribal Figurine", "Blue Pottery Floral Plate", "Kashmiri Carved Walnut Bowl", "Bamboo Weave Basket"). If the specific regional tradition isn't visually confirmable, name the general craft type instead (e.g. "glazed ceramic vase") rather than guessing a named tradition you can't support from the image.
+- craftMaterial: primary material and texture (e.g. "natural unglazed terracotta clay", "pure mulberry silk with metallic zari weave", "cast bell metal brass with antique patina")
+- confidence: 0.0-1.0, your certainty in the above identification
 
 STEP 2 — DESIGN THE BACKGROUND
-Choose background elements that genuinely complement this product's material and color — do not default to the same setting for every product. For example: a warm terracotta piece may suit a stone or clay-toned surface; a dark metal lamp may suit rich wood; a pale woven textile may suit a lighter, airier setting. Consider:
-- A surface material that complements (not competes with) the product's own color and material
-- A wall or backdrop tone that makes the product's colors pop rather than blend in
-- Natural, soft directional light (describe direction/quality, e.g. "soft morning light from the left")
-- At most one subtle supporting element if it fits the product's context (e.g. a blurred plant, folded linen, a woven mat) — omit if nothing suits, don't force one in
-- Shallow depth of field, photorealistic, professional e-commerce styling
+Use these craft-family associations as a STARTING POINT for mood and material, not a fixed script — adapt the specific details (exact surface, color, accent) to what THIS individual piece actually looks like, so two different pottery pieces don't get an identical background:
+- Pottery/clay/ceramics → rustic, earthen, artisan workbench mood — warm clay tones, soft courtyard-style sunlight
+- Handloom/silk/textiles → boutique display mood — warm wood or stone surface, soft linen or fabric texture, natural window light
+- Brass/bronze/metalcraft → heritage mood — carved stone or warm ambient alcove setting, soft golden glow
+- Cane/bamboo/wood → natural, organic mood — warm wood-toned surface, airy daylight, optional soft botanical element
+- Jewelry/luxury → editorial mood — polished marble or silk surface, soft diffused highlight lighting
+- If the product doesn't clearly fit any of these families (e.g. leather, glass, stone carving, painted canvas, leatherwork), reason from first principles: pick a surface and mood that complements its actual color, material, and weight rather than forcing it into the nearest category.
 
-Do NOT describe, mention, or re-render the product itself in "backgroundPrompt" — the product will be composited in separately. The prompt describes ONLY the environment behind/around it.
+Within whichever mood you land on, apply these rules:
+- A surface material that complements (not competes with) the product's own color and material — vary the exact surface, tone, and accent to fit the specific piece, not just the category
+- Soft directional light matching a key light from the upper front-left, consistent with standard studio compositing — do not describe conflicting light directions or multiple competing light sources
+- At most one subtle supporting element if it genuinely fits (e.g. a blurred plant, folded linen, a woven mat) — omit if nothing suits, don't force one in. Never choose an element similar in shape or silhouette to the product itself (e.g. no second vase-like object behind a vase)
+- Shallow depth of field, photorealistic, professional commercial studio styling
+- Do NOT describe, mention, or re-render the product itself in "backgroundPrompt" — the product will be composited in separately. The prompt describes ONLY the environment behind/around it.
 
 STEP 3 — FORMAT
-Write backgroundPrompt as a single flowing descriptive phrase, roughly 15-25 words (approximate is fine — prioritize a natural, complete description over hitting an exact count). Use plain descriptive words separated by spaces only — no commas, no semicolons, no punctuation other than a single closing period.
+Write backgroundPrompt as a single flowing descriptive phrase, roughly 15-25 words (approximate is fine — prioritize a natural, complete description over hitting an exact count). Plain descriptive words separated by spaces only — no commas, no semicolons, no punctuation other than a single closing period.
+
+surfaceType must match whatever surface material you actually described in backgroundPrompt — do not pick a category that contradicts the written description.
 
 Respond ONLY with one valid JSON object. No Markdown, no code fences, no commentary.
 
 {
   "detectedCraft": string,
   "craftMaterial": string,
-  "backgroundPrompt": string,   // no commas or semicolons; product itself not described
+  "confidence": number,          // 0.0-1.0, certainty in detectedCraft/craftMaterial identification
+  "backgroundPrompt": string,    // no commas or semicolons; product itself not described
   "surfaceType": "wood" | "marble" | "terracotta" | "stone" | "linen" | "clean"
 }`;
 
@@ -49,14 +59,6 @@ function cleanPrompt(prompt: string): string {
     .trim();
 }
 
-let openaiClient: OpenAI | null = null;
-function getOpenAIClient(): OpenAI | null {
-  if (!openaiClient && env.OPENAI_API_KEY) {
-    openaiClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-  }
-  return openaiClient;
-}
-
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
   if (!geminiClient && env.GEMINI_API_KEY) {
@@ -66,104 +68,79 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 /**
- * AI inspects the craft object directly and formulates a tailored photorealistic background prompt.
- * Provider priority:
- * 1. OpenAI (gpt-4o)
- * 2. Gemini (gemini-3.6-flash)
- * 3. Groq (meta-llama/llama-4-scout-17b-16e-instruct)
- * 4. Craft-aware heuristic synthesis fallback
+ * Uses Gemini API (Vision) exclusively to inspect the craft object
+ * and formulate a photorealistic background prompt related to the product.
  */
 export async function seeObjectAndGenerateBackgroundPrompt(
   cutoutOrImageBuffer: Buffer,
   productSpec?: ProductSpecification | null,
   requestedStyle: string = 'smart_contextual'
 ): Promise<CraftVisionBackgroundContext> {
-  const base64Image = cutoutOrImageBuffer.toString('base64');
-
-  // ─── 1. FIRST: OpenAI (gpt-4o) ───────────────────────────
-  const openai = getOpenAIClient();
-  if (openai) {
-    try {
-      console.log('[Vision AI] Step 1: Inspecting craft object with OpenAI (gpt-4o)...');
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: CRAFT_BACKGROUND_DESIGN_PROMPT },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/png;base64,${base64Image}`,
-                },
-              },
-            ],
-          },
-        ],
-        response_format: { type: 'json_object' },
-        max_tokens: 500,
-      });
-
-      const raw = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(raw);
-      if (parsed.backgroundPrompt && parsed.detectedCraft) {
-        console.log(
-          `[Vision AI] ✅ OpenAI detected "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
-        );
-        return {
-          detectedCraft: parsed.detectedCraft,
-          craftMaterial: parsed.craftMaterial || 'Handcrafted artisan material',
-          backgroundPrompt: cleanPrompt(parsed.backgroundPrompt),
-          surfaceType: parsed.surfaceType || 'wood',
-        };
-      }
-    } catch (err: any) {
-      console.warn('[Vision AI] OpenAI vision inspection failed, cascading to Gemini:', err.message);
-    }
+  // Ultra-fast network payload: downscale to 480px JPEG (<30KB) so upload completes in ~150ms instead of 10s
+  let base64Image: string;
+  let mimeType = 'image/jpeg';
+  try {
+    const thumb = await sharp(cutoutOrImageBuffer)
+      .resize(480, 480, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    base64Image = thumb.toString('base64');
+  } catch {
+    base64Image = cutoutOrImageBuffer.toString('base64');
+    mimeType = 'image/png';
   }
 
-  // ─── 2. SECOND: Gemini (gemini-3.6-flash) ─────────────────
+  // ─── Gemini API (gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash) ───
   const gemini = getGeminiClient();
   if (gemini) {
-    try {
-      console.log('[Vision AI] Step 2: Inspecting craft object with Gemini (gemini-3.6-flash)...');
-      const response = await gemini.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  data: base64Image,
-                  mimeType: 'image/png',
+    const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    for (const model of geminiModels) {
+      try {
+        console.log(`[Vision AI] Inspecting craft object with Gemini API (${model})...`);
+        const generatePromise = gemini.models.generateContent({
+          model,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    data: base64Image,
+                    mimeType,
+                  },
                 },
-              },
-              { text: CRAFT_BACKGROUND_DESIGN_PROMPT },
-            ],
-          },
-        ],
-      });
+                { text: CRAFT_BACKGROUND_DESIGN_PROMPT },
+              ],
+            },
+          ],
+        });
 
-      const responseText = response.text || '';
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.backgroundPrompt && parsed.detectedCraft) {
-          console.log(
-            `[Vision AI] ✅ Gemini detected "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
-          );
-          return {
-            detectedCraft: parsed.detectedCraft,
-            craftMaterial: parsed.craftMaterial || 'Handcrafted artisan material',
-            backgroundPrompt: cleanPrompt(parsed.backgroundPrompt),
-            surfaceType: parsed.surfaceType || 'wood',
-          };
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Gemini ${model} vision timed out after 6000ms`)), 6000)
+        );
+
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
+        const responseText =
+          typeof response.text === 'function' ? response.text() : (response.text || '');
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.backgroundPrompt && parsed.detectedCraft) {
+            console.log(
+              `[Vision AI] ✅ Gemini API detected "${parsed.detectedCraft}". Product-related background prompt: "${parsed.backgroundPrompt}"`
+            );
+            return {
+              detectedCraft: parsed.detectedCraft,
+              craftMaterial: parsed.craftMaterial || 'Handcrafted artisan material',
+              backgroundPrompt: cleanPrompt(parsed.backgroundPrompt),
+              surfaceType: parsed.surfaceType || 'wood',
+            };
+          }
         }
+      } catch (err: any) {
+        console.warn(`[Vision AI] Gemini (${model}) inspection failed:`, err.message);
       }
-    } catch (err: any) {
-      console.warn('[Vision AI] Gemini vision inspection failed, cascading to Groq:', err.message);
     }
   }
 

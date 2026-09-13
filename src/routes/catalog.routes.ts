@@ -6,8 +6,7 @@ const router = Router();
 
 /**
  * POST /api/catalog/generate
- * Public or authenticated endpoint for generating a smart bilingual catalog listing.
- * Accepts voice transcription or manual description and attributes.
+ * Generates a smart, detailed bilingual catalog listing using Gemini API.
  */
 router.post(['/catalog/generate', '/generate'], async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -19,6 +18,51 @@ router.post(['/catalog/generate', '/generate'], async (req: Request, res: Respon
       language,
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/catalog/preview-pdf
+ * Generates and downloads a printable PDF catalog directly from live draft data.
+ */
+router.post('/catalog/preview-pdf', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const draftData = req.body || {};
+    const pdfBuffer = await catalogService.generateDraftPdf(draftData);
+
+    const safeTitle = (draftData.name || 'product')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-')
+      .slice(0, 30);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="shilpsetu-catalog-${safeTitle}.pdf"`);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/catalog/product/:productId/pdf or /api/catalog/:productId/pdf
+ * Generate printable PDF catalog for an individual product.
+ */
+router.get(['/catalog/product/:productId/pdf', '/catalog/:productId/pdf'], async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const productId = Number(req.params.productId);
+    if (isNaN(productId)) {
+      res.status(400).json({ error: 'Invalid product ID' });
+      return;
+    }
+    const pdfBuffer = await catalogService.generateProductPdf(productId);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="product-catalog-${productId}.pdf"`);
+    res.setHeader('Cache-Control', 'public, max-age=120');
+    res.send(pdfBuffer);
   } catch (err) {
     next(err);
   }
@@ -53,12 +97,16 @@ router.get('/catalog/:productId', async (req: Request, res: Response, next: Next
 });
 
 /**
- * GET /api/catalog/:artisanId/pdf
- * Generate printable PDF catalog for an artisan's published inventory.
+ * GET /api/catalog/artisan/:artisanId/pdf or /api/catalog/:artisanId/pdf
+ * Generate printable PDF catalog for an artisan's complete published inventory.
  */
-router.get('/catalog/:artisanId/pdf', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.get(['/catalog/artisan/:artisanId/pdf', '/catalog/:artisanId/pdf'], async (req: Request, res: Response, next: NextFunction) => {
   try {
     const artisanId = Number(req.params.artisanId);
+    if (isNaN(artisanId)) {
+      res.status(400).json({ error: 'Invalid artisan ID' });
+      return;
+    }
     const pdfBuffer = await catalogService.generateArtisanPdf(artisanId);
 
     res.setHeader('Content-Type', 'application/pdf');

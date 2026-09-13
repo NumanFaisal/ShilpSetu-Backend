@@ -1,10 +1,10 @@
 import sharp, { type OverlayOptions } from 'sharp';
+import { GoogleGenAI } from '@google/genai';
 import { aiService } from '../ai/ai.service';
 import type { ProductSpecification, StudioStyle } from '../ai/ai.types';
 import { enhanceCraftCutout } from './lighting';
 import { env } from '../../../config/env';
 import { seeObjectAndGenerateBackgroundPrompt } from '../ai/vision-background';
-import { generateAIBackgroundFromCutout } from '../ai/cloudinary.ai';
 
 export interface StudioReconstructionResult {
   studioBuffer: Buffer;
@@ -165,10 +165,91 @@ export function resolveContextualStyle(
   };
 }
 
+// Cache generated background per batch so all photos of the same craft share the background instantly
+const batchBackgroundCache = new Map<string, Promise<{ buffer: Buffer; promptUsed: string; model: string } | null>>();
+
+/**
+ * Uses Gemini API (Imagen 3 Fast) to generate a photorealistic background environment
+ * specifically tailored to and related to the artisan craft product, with low latency (<5s).
+ */
+export async function generateGeminiStudioBackground(
+  backgroundPrompt: string,
+  targetWidth: number = 2000,
+  targetHeight: number = 2000,
+  timeoutMs: number = 9000
+): Promise<{ buffer: Buffer; promptUsed: string; model: string } | null> {
+  if (!env.GEMINI_API_KEY) {
+    console.warn('[Studio] GEMINI_API_KEY is not configured for background generation');
+    return null;
+  }
+
+  const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const aspectRatio =
+    targetWidth === targetHeight
+      ? '1:1'
+      : targetWidth > targetHeight
+      ? '4:3'
+      : '3:4';
+
+  const contextualPrompt = `${backgroundPrompt}. Commercial studio product photography setting, empty clean surface in the foreground center ready for placing the artisan craft, soft directional key light from upper left, photorealistic 8k commercial photography, realistic textures, shallow depth of field, no props or objects in center foreground, no watermarks, no text`;
+
+  // Prioritize fast low-latency model (imagen-3.0-fast-generate-001) for sub-5 second responses
+  const models = ['imagen-3.0-fast-generate-001', 'imagen-3.0-generate-002'];
+
+  for (const model of models) {
+    try {
+      console.log(`[Studio] Calling Gemini API (${model}) to generate product-related background (timeout: ${timeoutMs}ms)...`);
+      
+      const generationPromise = ai.models.generateImages({
+        model,
+        prompt: contextualPrompt,
+        config: {
+          numberOfImages: 1,
+          aspectRatio: aspectRatio as any,
+          outputMimeType: 'image/png',
+        },
+      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Gemini Imagen ${model} timed out after ${timeoutMs}ms`)), timeoutMs)
+      );
+
+      const response: any = await Promise.race([generationPromise, timeoutPromise]);
+
+      const generatedImages = response?.generatedImages;
+      if (
+        generatedImages &&
+        generatedImages.length > 0 &&
+        generatedImages[0]?.image?.imageBytes
+      ) {
+        const imageBytes = generatedImages[0].image.imageBytes;
+        const rawBuffer = Buffer.from(imageBytes, 'base64');
+        const resized = await sharp(rawBuffer)
+          .resize(targetWidth, targetHeight, { fit: 'cover' })
+          .png()
+          .toBuffer();
+
+        console.log(
+          `[Studio] ✅ Gemini API background generated successfully (${resized.length} bytes) using ${model}`
+        );
+        return {
+          buffer: resized,
+          promptUsed: contextualPrompt,
+          model,
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[Studio] Gemini API Imagen error (${model}):`, err?.message || err);
+    }
+  }
+
+  return null;
+}
+
 /**
  * Reconstructs a contextual e-commerce studio environment tailored to the artisan craft.
- * Uses Vision AI to inspect the craft object and Generative AI diffusion to create
- * a photorealistic, customized background scene (NOT hardcoded).
+ * Uses Vision AI (Gemini 2.5) to inspect the craft object and Generative AI (Gemini Imagen 3)
+ * to create a photorealistic, customized background scene related specifically to the product.
  */
 export async function reconstructStudioEnvironment(
   cleanedProductBuffer: Buffer,
@@ -184,7 +265,7 @@ export async function reconstructStudioEnvironment(
   const targetW = options?.targetWidth ?? 2000;
   const targetH = options?.targetHeight ?? 2000;
 
-  // 1. Enhance product cutout with micro-texture sharpening & color vibrance
+  // 1. Enhance product cutout with Gemini API guided micro-texture sharpening & color vibrance
   const enhancedCutout = await enhanceCraftCutout(cleanedProductBuffer, {
     material: productSpec?.material,
     primaryColors: productSpec?.primaryColors,
@@ -192,7 +273,7 @@ export async function reconstructStudioEnvironment(
     productType: productSpec?.productType,
   });
 
-  // 2. Vision AI: Inspect the object and dynamically synthesize tailored background prompt
+  // 2. Vision AI: Inspect the object and dynamically synthesize tailored background prompt with Gemini
   const requestedStyleStr = typeof style === 'string' ? style : 'smart_contextual';
   const visionContext = await seeObjectAndGenerateBackgroundPrompt(
     cleanedProductBuffer,
@@ -202,38 +283,51 @@ export async function reconstructStudioEnvironment(
 
   const detectedCraft = visionContext.detectedCraft || productSpec?.productType || 'Artisan Craft';
   console.log(
-    `[Studio] AI Vision identified object: "${detectedCraft}". Tailored background prompt: "${visionContext.backgroundPrompt}"`
+    `[Studio] Gemini Vision identified object: "${detectedCraft}". Tailored background prompt: "${visionContext.backgroundPrompt}"`
   );
 
-  // 3. Primary Method: Generative AI Background Generation (Diffusion model)
-  // Takes the real craft cutout and uses AI to generate the complementary background scene
-  const aiGenResult = await generateAIBackgroundFromCutout(
-    enhancedCutout,
-    visionContext.backgroundPrompt,
-    {
-      folder: 'shilpsetu_ai_studio',
-      timeoutMs: 25000,
+  // 3. Primary Method: Gemini API Background Generation (Imagen 3 Fast with Batch Cache)
+  // Generates a photorealistic background scene specifically related to the product
+  let geminiBg: { buffer: Buffer; promptUsed: string; model: string } | null = null;
+  if (options?.batchId && batchBackgroundCache.has(options.batchId)) {
+    console.log(`[Studio] ⚡ Instant batch reuse of Gemini background for batch ${options.batchId}`);
+    geminiBg = await batchBackgroundCache.get(options.batchId)!;
+  } else {
+    const bgPromise = generateGeminiStudioBackground(
+      visionContext.backgroundPrompt,
+      targetW,
+      targetH,
+      8000
+    );
+    if (options?.batchId) {
+      batchBackgroundCache.set(options.batchId, bgPromise);
     }
-  );
+    geminiBg = await bgPromise;
+  }
 
-  if (aiGenResult) {
+  if (geminiBg) {
     console.log(
-      `[Studio] ✅ AI Background generated successfully for "${detectedCraft}" via GenAI diffusion!`
+      `[Studio] ✅ Gemini API generated background for "${detectedCraft}" related to product!`
     );
 
-    // Ensure output conforms to target dimensions
-    const finalBuffer = await sharp(aiGenResult.buffer)
-      .resize(targetW, targetH, { fit: 'inside', withoutEnlargement: true })
-      .png()
-      .toBuffer();
+    // Seamlessly composite the enhanced product cutout onto the Gemini-generated background
+    const compositeBuffer = await compositeProductSeamlessly(
+      enhancedCutout,
+      geminiBg.buffer,
+      targetW,
+      targetH,
+      {
+        surfaceType: visionContext.surfaceType,
+      }
+    );
 
     return {
-      studioBuffer: finalBuffer,
+      studioBuffer: compositeBuffer,
       style: visionContext.surfaceType,
       detectedCraft,
-      contextualBackdrop: `${detectedCraft} in AI-Generated Studio`,
-      method: 'ai_generative_background',
-      promptUsed: aiGenResult.promptUsed,
+      contextualBackdrop: `${detectedCraft} on Gemini AI Studio Background`,
+      method: 'gemini_generative_background',
+      promptUsed: geminiBg.promptUsed,
     };
   }
 
@@ -243,7 +337,14 @@ export async function reconstructStudioEnvironment(
     `[Studio] GenAI unavailable, falling back to seamless procedural composite studio...`
   );
 
-  const contextual = resolveContextualStyle(productSpec, style);
+  const contextual = resolveContextualStyle(
+    {
+      ...productSpec,
+      productType: visionContext.detectedCraft || productSpec?.productType,
+      material: visionContext.craftMaterial || productSpec?.material,
+    } as any,
+    style
+  );
   const backdrop = await createSeamlessStudioBackdrop(contextual.styleKey, targetW, targetH);
 
   const compositeBuffer = await compositeProductSeamlessly(
