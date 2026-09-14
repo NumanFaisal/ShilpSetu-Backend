@@ -6,72 +6,98 @@ import { getAdapter } from '../modules/marketplace/marketplace.registry';
 import type { MarketplaceProduct } from '../modules/marketplace/marketplace.types';
 import type { MarketplacePublishJobData } from './queues';
 import { r2 } from '../lib/r2';
+import { env } from '../config/env';
+
+export async function processMarketplacePublishJob(data: MarketplacePublishJobData) {
+  const { productId, marketplace } = data;
+  console.log(`[marketplace-runner] Processing publish: product=${productId} marketplace=${marketplace}`);
+
+  const adapter = getAdapter(marketplace as any);
+
+  // Load product with relations
+  const product = await db.orm.public.Product.where({ id: productId })
+    .include('catalogue', (c) => c)
+    .include('pricing', (p) => p)
+    .include('images', (img) => img)
+    .all()
+    .first();
+
+  if (!product) throw new Error(`Product ${productId} not found`);
+
+  // Resolve image URLs for adapter
+  const images = await Promise.all(
+    (product.images ?? []).map(async (img: any) => ({
+      ...img,
+      outputSquareUrl: img.outputSquareKey ? await r2.getAccessUrl(img.outputSquareKey) : null,
+      originalUrl: img.originalKey ? await r2.getAccessUrl(img.originalKey) : null,
+    })),
+  );
+
+  const marketplaceProduct: MarketplaceProduct = {
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    material: product.material,
+    category: product.category,
+    price: product.price,
+    quantity: product.quantity,
+    status: product.status,
+    catalogue: (product as any).catalogue ?? null,
+    pricing: (product as any).pricing ?? null,
+    images,
+  };
+
+  try {
+    const { externalId } = await adapter.createListing(marketplaceProduct);
+
+    // Update listing row
+    const listing = await db.orm.public.MarketplaceListing
+      .where({ productId, marketplace })
+      .all()
+      .first();
+
+    if (listing) {
+      await db.orm.public.MarketplaceListing.where({ id: listing.id }).update({
+        externalId,
+        status: 'PUBLISHED',
+        lastSyncedAt: nowInstant(),
+        errorMessage: null,
+      });
+    }
+
+    console.log(`[marketplace-runner] Published product=${productId} → ${marketplace} (externalId=${externalId})`);
+    return { externalId };
+  } catch (err: any) {
+    console.error(`[marketplace-runner] Publish failed for product=${productId} → ${marketplace}:`, err.message);
+    const listing = await db.orm.public.MarketplaceListing
+      .where({ productId, marketplace })
+      .all()
+      .first();
+
+    if (listing) {
+      await db.orm.public.MarketplaceListing.where({ id: listing.id }).update({
+        status: 'FAILED',
+        errorMessage: err.message.slice(0, 500),
+      });
+    }
+    throw err;
+  }
+}
 
 let worker: Worker | null = null;
 
-export function startMarketplacePublishWorker() {
+export function startMarketplacePublishWorker(): Worker | null {
+  if (!env.ENABLE_REDIS) {
+    console.log('[Worker] In-memory mode active — Redis marketplace worker skipped.');
+    return null;
+  }
+
   if (worker) return worker;
 
   worker = new Worker<MarketplacePublishJobData>(
     'marketplace-publish',
     async (job) => {
-      const { productId, marketplace } = job.data;
-      console.log(`[marketplace-worker] Processing publish: product=${productId} marketplace=${marketplace}`);
-
-      const adapter = getAdapter(marketplace as any);
-
-      // Load product with relations
-      const product = await db.orm.public.Product.where({ id: productId })
-        .include('catalogue', (c) => c)
-        .include('pricing', (p) => p)
-        .include('images', (img) => img)
-        .all()
-        .first();
-
-      if (!product) throw new Error(`Product ${productId} not found`);
-
-      // Resolve image URLs for adapter
-      const images = await Promise.all(
-        (product.images ?? []).map(async (img: any) => ({
-          ...img,
-          outputSquareUrl: img.outputSquareKey ? await r2.getAccessUrl(img.outputSquareKey) : null,
-          originalUrl: img.originalKey ? await r2.getAccessUrl(img.originalKey) : null,
-        })),
-      );
-
-      const marketplaceProduct: MarketplaceProduct = {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        material: product.material,
-        category: product.category,
-        price: product.price,
-        quantity: product.quantity,
-        status: product.status,
-        catalogue: (product as any).catalogue ?? null,
-        pricing: (product as any).pricing ?? null,
-        images,
-      };
-
-      const { externalId } = await adapter.createListing(marketplaceProduct);
-
-      // Update listing row
-      const listing = await db.orm.public.MarketplaceListing
-        .where({ productId, marketplace })
-        .all()
-        .first();
-
-      if (listing) {
-        await db.orm.public.MarketplaceListing.where({ id: listing.id }).update({
-          externalId,
-          status: 'PUBLISHED',
-          lastSyncedAt: nowInstant(),
-          errorMessage: null,
-        });
-      }
-
-      console.log(`[marketplace-worker] Published product=${productId} → ${marketplace} (externalId=${externalId})`);
-      return { externalId };
+      return await processMarketplacePublishJob(job.data);
     },
     {
       connection: createRedisConnection(),
@@ -79,23 +105,8 @@ export function startMarketplacePublishWorker() {
     },
   );
 
-  worker.on('failed', async (job, err) => {
+  worker.on('failed', (job, err) => {
     console.error(`[marketplace-worker] Job ${job?.id} failed: ${err.message}`);
-
-    if (job) {
-      const { productId, marketplace } = job.data;
-      const listing = await db.orm.public.MarketplaceListing
-        .where({ productId, marketplace })
-        .all()
-        .first();
-
-      if (listing) {
-        await db.orm.public.MarketplaceListing.where({ id: listing.id }).update({
-          status: 'FAILED',
-          errorMessage: err.message.slice(0, 500),
-        });
-      }
-    }
   });
 
   worker.on('completed', (job) => {
@@ -112,6 +123,6 @@ export function startMarketplacePublishWorker() {
   });
 
   console.log('[marketplace-worker] Started');
-
   return worker;
 }
+

@@ -4,7 +4,7 @@ import { r2 } from '../lib/r2';
 import { encryptToken, decryptToken } from '../lib/crypto';
 import { HttpError } from '../lib/http-error';
 import { nowInstant, toInstant } from '../lib/temporal';
-import { marketplacePublishQueue } from '../jobs/queues';
+import { enqueueMarketplacePublishJob } from '../jobs/queues';
 import { getAdapter, isMarketplace } from '../modules/marketplace/marketplace.registry';
 import type { Marketplace, MarketplaceProduct } from '../modules/marketplace/marketplace.types';
 import { env } from '../config/env';
@@ -405,12 +405,8 @@ class MarketplaceService {
         });
       }
 
-      // Enqueue BullMQ job
-      await marketplacePublishQueue.add(
-        `publish:${mp}:${productId}`,
-        { productId, marketplace: mp },
-        { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
-      );
+      // Enqueue job (routes to Redis BullMQ or In-Memory runner)
+      await enqueueMarketplacePublishJob({ productId, marketplace: mp });
 
       results.push({ marketplace: mp, status: 'PENDING' });
     }

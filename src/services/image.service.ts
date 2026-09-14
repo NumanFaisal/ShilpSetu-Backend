@@ -1,8 +1,7 @@
 import { randomUUID } from 'crypto';
 import { r2 } from '../lib/r2';
 import { db } from '../prisma/db';
-import { imageProcessingQueue } from '../jobs/queues';
-import { imagePipeline } from '../jobs/pipeline';
+import { enqueueImageJob } from '../jobs/queues';
 import type { ImageJobData } from '../jobs/queues';
 import type { CreateBatchInput } from '../modules/image/image.types';
 
@@ -77,20 +76,8 @@ export class ImageService {
           productId: options.productId,
         });
 
-        // 1. Queue to BullMQ (for worker if Redis is available)
-        imageProcessingQueue.add(`process-${batch.id}-${imageId}`, jobData, {
-          attempts: 2,
-          removeOnComplete: true,
-        }).catch((queueErr) => {
-          console.warn('[ImageService] Redis queue warning:', queueErr?.message);
-        });
-
-        // 2. Guaranteed in-process pipeline runner (ensures image processes immediately even if Redis is disconnected)
-        setImmediate(() => {
-          imagePipeline.processImage(jobData).catch((pipelineErr) => {
-            console.error(`[ImageService] Direct pipeline error for ${imageId}:`, pipelineErr?.message || pipelineErr);
-          });
-        });
+        // Enqueue processing job (routes to Redis BullMQ or In-Memory runner)
+        await enqueueImageJob(jobData);
 
         enqueuedImages.push({ imageId, storageKey });
       })
@@ -180,32 +167,6 @@ export class ImageService {
         progress: 0,
       });
 
-      try {
-        await Promise.race([
-          imageProcessingQueue.add(
-            `process-${batchId}-${image.id}`,
-            this.buildJobData({
-              batchId,
-              imageId: image.id,
-              userId,
-              originalKey: image.originalKey,
-              style: batch.style,
-              productId: batch.productId ?? undefined,
-            }),
-            {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-            }
-          ),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Redis enqueue timeout')), 1200)
-          ),
-        ]);
-      } catch (queueErr: any) {
-        console.warn('[ImageService] Redis queue warning:', queueErr?.message);
-      }
-
-      // Guaranteed in-process pipeline runner
       const jobData = this.buildJobData({
         batchId,
         imageId: image.id,
@@ -214,12 +175,8 @@ export class ImageService {
         style: batch.style,
         productId: batch.productId ?? undefined,
       });
-      setImmediate(() => {
-        imagePipeline.processImage(jobData).catch((pipelineErr) => {
-          console.error(`[ImageService] Direct pipeline error for ${image.id}:`, pipelineErr?.message || pipelineErr);
-        });
-      });
 
+      await enqueueImageJob(jobData);
       enqueuedCount++;
     }
 

@@ -5,29 +5,31 @@ import { startMarketplacePublishWorker } from './jobs/marketplace.worker';
 
 const PORT = env.PORT || 4000;
 
-// Start BullMQ workers for background processing
+// Start background workers (if Redis is enabled)
 const imageWorker = startImageProcessingWorker();
 const marketplaceWorker = startMarketplacePublishWorker();
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  await imageWorker.close();
-  await marketplaceWorker.close();
+  await imageWorker?.close();
+  await marketplaceWorker?.close();
   process.exit(0);
 });
 process.on('SIGTERM', async () => {
-  await imageWorker.close();
-  await marketplaceWorker.close();
+  await imageWorker?.close();
+  await marketplaceWorker?.close();
   process.exit(0);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
+  const queueMode = env.ENABLE_REDIS ? 'Redis (BullMQ)' : 'In-Memory (Zero Redis)';
   console.log(`
   ┌──────────────────────────────────────────────┐
   │  ShilpSetu Backend — Product Studio API      │
   │                                              │
   │  Server running on http://localhost:${PORT}  │
   │  Environment: ${env.NODE_ENV.padEnd(30)}     │
+  │  Queue Mode:  ${queueMode.padEnd(30)}     │
   │                                              │
   │  Endpoints:                                  │
   │  [C1] POST /api/image-batches/upload         │

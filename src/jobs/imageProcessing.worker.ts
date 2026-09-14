@@ -9,8 +9,14 @@ import { imagePipeline } from './pipeline';
  * removal → studio reconstruction → export) for each image.
  */
 import { db } from '../prisma/db';
+import { env } from '../config/env';
 
-export function startImageProcessingWorker() {
+export function startImageProcessingWorker(): Worker | null {
+  if (!env.ENABLE_REDIS) {
+    console.log('[Worker] In-memory mode active — Redis image processing worker skipped.');
+    return null;
+  }
+
   const worker = new Worker<ImageJobData>(
     IMAGE_PROCESSING_QUEUE_NAME,
     async (job) => {
@@ -31,6 +37,7 @@ export function startImageProcessingWorker() {
     {
       connection: createRedisConnection(),
       concurrency: 8,
+      stalledInterval: 300000, // 5 min interval to protect cloud Redis quotas
     }
   );
 
