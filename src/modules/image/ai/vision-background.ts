@@ -1,5 +1,6 @@
 import sharp from 'sharp';
 import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 import { env } from '../../../config/env';
 import type { ProductSpecification } from './ai.types';
 
@@ -68,8 +69,8 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 /**
- * Uses Gemini API (Vision) exclusively to inspect the craft object
- * and formulate a photorealistic background prompt related to the product.
+ * Inspects the craft object using multimodal vision AI (OpenAI -> Gemini -> Groq -> Heuristics)
+ * and formulates a photorealistic background prompt related to the product.
  */
 export async function seeObjectAndGenerateBackgroundPrompt(
   cutoutOrImageBuffer: Buffer,
@@ -90,13 +91,59 @@ export async function seeObjectAndGenerateBackgroundPrompt(
     mimeType = 'image/png';
   }
 
-  // ─── Gemini API (gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash) ───
+  // ─── 1. FIRST: Try OpenAI GPT-4o-mini Vision (If available & funded) ───
+  if (env.OPENAI_API_KEY) {
+    try {
+      console.log('[Vision AI] Step 1: Trying OpenAI GPT-4o-mini Vision...');
+      const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 4000 });
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: CRAFT_BACKGROUND_DESIGN_PROMPT },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${base64Image}`,
+                  detail: 'low',
+                },
+              },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 400,
+      });
+
+      const content = response.choices?.[0]?.message?.content || '{}';
+      const parsed = JSON.parse(content);
+      if (parsed.backgroundPrompt && parsed.detectedCraft) {
+        console.log(
+          `[Vision AI] ✅ OpenAI succeeded: "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
+        );
+        return {
+          detectedCraft: parsed.detectedCraft,
+          craftMaterial: parsed.craftMaterial || 'Handcrafted artisan material',
+          backgroundPrompt: cleanPrompt(parsed.backgroundPrompt),
+          surfaceType: parsed.surfaceType || 'wood',
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[Vision AI] ⚠️ OpenAI did not work (${err?.message || err}). Falling back to Gemini...`);
+    }
+  } else {
+    console.log('[Vision AI] OpenAI key not set, proceeding to Gemini...');
+  }
+
+  // ─── 2. SECOND: Gemini API (gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash) ───
   const gemini = getGeminiClient();
   if (gemini) {
-    const geminiModels = ['gemini-3.6-flash'];
+    const geminiModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     for (const model of geminiModels) {
       try {
-        console.log(`[Vision AI] Inspecting craft object with Gemini API (${model})...`);
+        console.log(`[Vision AI] Step 2: Trying Gemini Vision (${model})...`);
         const generatePromise = gemini.models.generateContent({
           model,
           contents: [
@@ -116,7 +163,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
         });
 
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Gemini ${model} vision timed out after 6000ms`)), 6000)
+          setTimeout(() => reject(new Error(`Gemini ${model} vision timed out after 4000ms`)), 4000)
         );
 
         const response: any = await Promise.race([generatePromise, timeoutPromise]);
@@ -128,7 +175,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
           const parsed = JSON.parse(jsonMatch[0]);
           if (parsed.backgroundPrompt && parsed.detectedCraft) {
             console.log(
-              `[Vision AI] ✅ Gemini API detected "${parsed.detectedCraft}". Product-related background prompt: "${parsed.backgroundPrompt}"`
+              `[Vision AI] ✅ Gemini succeeded: "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
             );
             return {
               detectedCraft: parsed.detectedCraft,
@@ -139,23 +186,28 @@ export async function seeObjectAndGenerateBackgroundPrompt(
           }
         }
       } catch (err: any) {
-        console.warn(`[Vision AI] Gemini (${model}) inspection failed:`, err.message);
+        console.warn(`[Vision AI] ⚠️ Gemini (${model}) did not work: ${err.message}`);
       }
     }
+    console.log('[Vision AI] Gemini did not work, proceeding to Groq...');
   }
 
-  // ─── 3. THIRD: Groq (Multimodal Vision) ───────────────────
+  // ─── 3. THIRD: Groq (Multimodal Vision — Free 14,400 req/day) ───
   if (env.GROQ_API_KEY) {
     try {
-      console.log('[Vision AI] Step 3: Inspecting craft object with Groq Vision...');
+      console.log('[Vision AI] Step 3: Trying Groq Vision...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
       const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${env.GROQ_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: 'llama-3.2-11b-vision-preview',
           messages: [
             {
               role: 'user',
@@ -164,7 +216,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
                 {
                   type: 'image_url',
                   image_url: {
-                    url: `data:image/png;base64,${base64Image}`,
+                    url: `data:image/jpeg;base64,${base64Image}`,
                   },
                 },
               ],
@@ -174,6 +226,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
           max_tokens: 500,
         }),
       });
+      clearTimeout(timeoutId);
 
       if (groqResponse.ok) {
         const data: any = await groqResponse.json();
@@ -181,7 +234,7 @@ export async function seeObjectAndGenerateBackgroundPrompt(
         const parsed = JSON.parse(content);
         if (parsed.backgroundPrompt && parsed.detectedCraft) {
           console.log(
-            `[Vision AI] ✅ Groq detected "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
+            `[Vision AI] ✅ Groq succeeded: "${parsed.detectedCraft}". Prompt: "${parsed.backgroundPrompt}"`
           );
           return {
             detectedCraft: parsed.detectedCraft,
@@ -195,12 +248,12 @@ export async function seeObjectAndGenerateBackgroundPrompt(
         console.warn(`[Vision AI] Groq API warning (${groqResponse.status}):`, errorText.slice(0, 150));
       }
     } catch (err: any) {
-      console.warn('[Vision AI] Groq vision inspection failed, using heuristic fallback:', err.message);
+      console.warn('[Vision AI] ⚠️ Groq vision did not work:', err?.message || err);
     }
   }
 
-  // ─── 4. FOURTH: Craft-Aware Heuristic Synthesis ────────────
-  console.log('[Vision AI] Using craft-aware heuristic prompt synthesizer...');
+  // ─── 4. FOURTH: Craft-Aware Heuristic Synthesis (Zero External API Dependency) ───
+  console.log('[Vision AI] Step 4: Using craft-aware heuristic prompt synthesizer...');
   return synthesizeCraftBackgroundPrompt(productSpec, requestedStyle);
 }
 

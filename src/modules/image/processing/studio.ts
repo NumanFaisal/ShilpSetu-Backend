@@ -1,10 +1,12 @@
 import sharp, { type OverlayOptions } from 'sharp';
 import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 import { aiService } from '../ai/ai.service';
 import type { ProductSpecification, StudioStyle } from '../ai/ai.types';
 import { enhanceCraftCutout } from './lighting';
 import { env } from '../../../config/env';
 import { seeObjectAndGenerateBackgroundPrompt } from '../ai/vision-background';
+import { generateAIBackgroundFromCutout } from '../ai/cloudinary.ai';
 
 export interface StudioReconstructionResult {
   studioBuffer: Buffer;
@@ -250,8 +252,63 @@ export async function generateGeminiStudioBackground(
 }
 
 /**
+ * Uses OpenAI DALL-E 3 to generate a photorealistic commercial studio background
+ * tailored to the detected craft product.
+ */
+export async function generateOpenAIStudioBackground(
+  backgroundPrompt: string,
+  targetWidth: number = 2000,
+  targetHeight: number = 2000,
+  timeoutMs: number = 7000
+): Promise<{ buffer: Buffer; promptUsed: string; model: string } | null> {
+  if (!env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  const contextualPrompt = `${backgroundPrompt}. Professional commercial studio product photography environment, clean empty tabletop surface in foreground center ready to place product, soft natural directional key light from upper left, shallow depth of field with blurry background, photorealistic 8k commercial photography, absolutely no objects or products in center foreground, no watermarks, no text`;
+
+  try {
+    console.log(`[Studio] Calling OpenAI DALL-E 3 for product-related background (timeout: ${timeoutMs}ms)...`);
+    const generationPromise = openai.images.generate({
+      model: 'dall-e-3',
+      prompt: contextualPrompt,
+      n: 1,
+      size: '1024x1024',
+      response_format: 'b64_json',
+      quality: 'standard',
+    });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`OpenAI DALL-E 3 timed out after ${timeoutMs}ms`)), timeoutMs)
+    );
+
+    const response: any = await Promise.race([generationPromise, timeoutPromise]);
+    const b64 = response?.data?.[0]?.b64_json;
+    if (b64) {
+      const rawBuffer = Buffer.from(b64, 'base64');
+      const resized = await sharp(rawBuffer)
+        .resize(targetWidth, targetHeight, { fit: 'cover' })
+        .png()
+        .toBuffer();
+
+      console.log(`[Studio] ✅ OpenAI DALL-E 3 background generated successfully (${resized.length} bytes)`);
+      return {
+        buffer: resized,
+        promptUsed: contextualPrompt,
+        model: 'dall-e-3',
+      };
+    }
+  } catch (err: any) {
+    console.warn('[Studio] OpenAI DALL-E 3 background error:', err?.message || err);
+  }
+
+  return null;
+}
+
+/**
  * Reconstructs a contextual e-commerce studio environment tailored to the artisan craft.
- * Uses Vision AI (Gemini 2.5) to inspect the craft object and Generative AI (Gemini Imagen 3)
+ * Uses Vision AI to inspect the craft object and Generative AI (Cloudinary GenAI / DALL-E 3 / Imagen 3)
  * to create a photorealistic, customized background scene related specifically to the product.
  */
 export async function reconstructStudioEnvironment(
@@ -268,7 +325,7 @@ export async function reconstructStudioEnvironment(
   const targetW = options?.targetWidth ?? 2000;
   const targetH = options?.targetHeight ?? 2000;
 
-  // 1. Enhance product cutout with Gemini API guided micro-texture sharpening & color vibrance
+  // 1. Enhance product cutout with micro-texture sharpening & color vibrance
   const enhancedCutout = await enhanceCraftCutout(cleanedProductBuffer, {
     material: productSpec?.material,
     primaryColors: productSpec?.primaryColors,
@@ -276,7 +333,7 @@ export async function reconstructStudioEnvironment(
     productType: productSpec?.productType,
   });
 
-  // 2. Vision AI: Inspect the object and dynamically synthesize tailored background prompt with Gemini
+  // 2. Vision AI: Inspect the object and dynamically synthesize tailored background prompt
   const requestedStyleStr = typeof style === 'string' ? style : 'smart_contextual';
   const visionContext = await seeObjectAndGenerateBackgroundPrompt(
     cleanedProductBuffer,
@@ -286,37 +343,75 @@ export async function reconstructStudioEnvironment(
 
   const detectedCraft = visionContext.detectedCraft || productSpec?.productType || 'Artisan Craft';
   console.log(
-    `[Studio] Gemini Vision identified object: "${detectedCraft}". Tailored background prompt: "${visionContext.backgroundPrompt}"`
+    `[Studio] Vision AI identified object: "${detectedCraft}". Tailored background prompt: "${visionContext.backgroundPrompt}"`
   );
 
-  // 3. Primary Method: Gemini API Background Generation (Imagen 3 Fast with Batch Cache)
-  // Generates a photorealistic background scene specifically related to the product
-  let geminiBg: { buffer: Buffer; promptUsed: string; model: string } | null = null;
+  // 3. GENERATIVE AI BACKGROUND PIPELINE
+  // Strategy A: Cloudinary GenAI Background Replacement (Cutout-to-scene generative placement)
+  if (env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET) {
+    try {
+      console.log(`[Studio] 🎨 Generating background with Cloudinary GenAI for "${detectedCraft}"...`);
+      const cloudResult = await generateAIBackgroundFromCutout(
+        cleanedProductBuffer,
+        visionContext.backgroundPrompt,
+        { timeoutMs: 25000 }
+      );
+      if (cloudResult?.buffer) {
+        const resized = await sharp(cloudResult.buffer)
+          .resize(targetW, targetH, { fit: 'cover' })
+          .png()
+          .toBuffer();
+
+        console.log(`[Studio] ✅ Cloudinary GenAI background generated successfully for "${detectedCraft}"!`);
+        return {
+          studioBuffer: resized,
+          style: visionContext.surfaceType,
+          detectedCraft,
+          contextualBackdrop: `${detectedCraft} on Cloudinary AI Studio Background`,
+          method: 'cloudinary_genai_background_replace',
+          promptUsed: cloudResult.promptUsed,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[Studio] Cloudinary GenAI background replace error:', err?.message || err);
+    }
+  }
+
+  // Strategy B: Multimodal Generative Backgrounds (OpenAI DALL-E 3 / Gemini Imagen 3) + Seamless Compositing
+  let aiBg: { buffer: Buffer; promptUsed: string; model: string } | null = null;
   if (options?.batchId && batchBackgroundCache.has(options.batchId)) {
-    console.log(`[Studio] ⚡ Instant batch reuse of Gemini background for batch ${options.batchId}`);
-    geminiBg = await batchBackgroundCache.get(options.batchId)!;
+    console.log(`[Studio] ⚡ Instant batch reuse of AI background for batch ${options.batchId}`);
+    aiBg = await batchBackgroundCache.get(options.batchId)!;
   } else {
-    const bgPromise = generateGeminiStudioBackground(
-      visionContext.backgroundPrompt,
-      targetW,
-      targetH,
-      8000
-    );
+    const bgPromise = (async () => {
+      // Try OpenAI DALL-E 3 first if key is available
+      if (env.OPENAI_API_KEY) {
+        const dalle = await generateOpenAIStudioBackground(visionContext.backgroundPrompt, targetW, targetH, 20000);
+        if (dalle) return dalle;
+      }
+      // Try Gemini Imagen 3
+      if (env.GEMINI_API_KEY) {
+        const gemini = await generateGeminiStudioBackground(visionContext.backgroundPrompt, targetW, targetH, 8000);
+        if (gemini) return gemini;
+      }
+      return null;
+    })();
+
     if (options?.batchId) {
       batchBackgroundCache.set(options.batchId, bgPromise);
     }
-    geminiBg = await bgPromise;
+    aiBg = await bgPromise;
   }
 
-  if (geminiBg) {
+  if (aiBg) {
     console.log(
-      `[Studio] ✅ Gemini API generated background for "${detectedCraft}" related to product!`
+      `[Studio] ✅ AI generated background (${aiBg.model}) for "${detectedCraft}" related to product!`
     );
 
-    // Seamlessly composite the enhanced product cutout onto the Gemini-generated background
+    // Seamlessly composite the enhanced product cutout onto the AI-generated background
     const compositeBuffer = await compositeProductSeamlessly(
       enhancedCutout,
-      geminiBg.buffer,
+      aiBg.buffer,
       targetW,
       targetH,
       {
@@ -328,9 +423,9 @@ export async function reconstructStudioEnvironment(
       studioBuffer: compositeBuffer,
       style: visionContext.surfaceType,
       detectedCraft,
-      contextualBackdrop: `${detectedCraft} on Gemini AI Studio Background`,
-      method: 'gemini_generative_background',
-      promptUsed: geminiBg.promptUsed,
+      contextualBackdrop: `${detectedCraft} on ${aiBg.model} AI Background`,
+      method: `${aiBg.model}_generative_background`,
+      promptUsed: aiBg.promptUsed,
     };
   }
 
@@ -525,45 +620,6 @@ function createBotanicalLifestyleSVG(width: number, height: number): string {
       <!-- Horizon line with subtle depth shadow -->
       <line x1="0" y1="${tableY}" x2="${width}" y2="${tableY}" stroke="#B8A798" stroke-width="2" opacity="0.45"/>
       <rect y="${tableY}" width="100%" height="14" fill="black" opacity="0.04"/>
-
-      <!-- Aesthetic Little Element: Potted Plant in the Background on the left with subtle depth blur -->
-      <g filter="url(#dofPlantBlur)" opacity="0.88">
-        <!-- Pot contact shadow on table -->
-        <ellipse cx="${potX + potW * 0.5}" cy="${potY + potH + 4}" rx="${potW * 0.6}" ry="${potH * 0.14}" fill="#000000" opacity="0.25"/>
-
-        <!-- Ceramic Pot Body -->
-        <path d="M ${potX + potW * 0.12} ${potY + potH} 
-                 L ${potX + potW * 0.88} ${potY + potH} 
-                 L ${potX + potW} ${potY + potH * 0.15} 
-                 L ${potX} ${potY + potH * 0.15} Z" 
-              fill="url(#whitePot)"/>
-        <!-- Pot Rim -->
-        <ellipse cx="${potX + potW * 0.5}" cy="${potY + potH * 0.15}" rx="${potW * 0.5}" ry="${potH * 0.12}" fill="#F0EDE7"/>
-        <ellipse cx="${potX + potW * 0.5}" cy="${potY + potH * 0.16}" rx="${potW * 0.42}" ry="${potH * 0.09}" fill="#54473C"/>
-
-        <!-- Plant Stems & Lush Leaves -->
-        <!-- Center Stem -->
-        <path d="M ${potX + potW * 0.5} ${potY + potH * 0.15} Q ${potX + potW * 0.48} ${potY - potH * 0.6} ${potX + potW * 0.52} ${potY - potH * 1.3}" stroke="#3A562D" stroke-width="3.5" fill="none"/>
-        <!-- Left Arching Stem -->
-        <path d="M ${potX + potW * 0.45} ${potY + potH * 0.12} Q ${potX + potW * 0.1} ${potY - potH * 0.4} ${potX - potW * 0.3} ${potY - potH * 0.9}" stroke="#446636" stroke-width="3" fill="none"/>
-        <!-- Right Arching Stem -->
-        <path d="M ${potX + potW * 0.55} ${potY + potH * 0.12} Q ${potX + potW * 0.9} ${potY - potH * 0.4} ${potX + potW * 1.25} ${potY - potH * 0.8}" stroke="#446636" stroke-width="3" fill="none"/>
-
-        <!-- Elegant Leaves spreading gracefully -->
-        <!-- Top Leaf -->
-        <path d="M ${potX + potW * 0.52} ${potY - potH * 1.3} C ${potX + potW * 0.3} ${potY - potH * 1.7} ${potX + potW * 0.7} ${potY - potH * 1.7} ${potX + potW * 0.52} ${potY - potH * 1.3} Z" fill="url(#leafFresh)"/>
-        <!-- Top Left Leaves -->
-        <path d="M ${potX + potW * 0.46} ${potY - potH * 0.95} C ${potX + potW * 0.1} ${potY - potH * 1.3} ${potX + potW * 0.25} ${potY - potH * 1.45} ${potX + potW * 0.46} ${potY - potH * 0.95} Z" fill="url(#leafMid)"/>
-        <path d="M ${potX - potW * 0.3} ${potY - potH * 0.9} C ${potX - potW * 0.6} ${potY - potH * 1.2} ${potX - potW * 0.3} ${potY - potH * 1.35} ${potX - potW * 0.3} ${potY - potH * 0.9} Z" fill="url(#leafDeep)"/>
-        <!-- Left Mid Leaf -->
-        <path d="M ${potX + potW * 0.2} ${potY - potH * 0.5} C ${potX - potW * 0.3} ${potY - potH * 0.65} ${potX - potW * 0.2} ${potY - potH * 0.9} ${potX + potW * 0.2} ${potY - potH * 0.5} Z" fill="url(#leafMid)"/>
-        <!-- Top Right Leaves -->
-        <path d="M ${potX + potW * 0.55} ${potY - potH * 0.85} C ${potX + potW * 0.9} ${potY - potH * 1.15} ${potX + potW * 0.8} ${potY - potH * 1.3} ${potX + potW * 0.55} ${potY - potH * 0.85} Z" fill="url(#leafFresh)"/>
-        <path d="M ${potX + potW * 1.25} ${potY - potH * 0.8} C ${potX + potW * 1.6} ${potY - potH * 1.05} ${potX + potW * 1.45} ${potY - potH * 1.2} ${potX + potW * 1.25} ${potY - potH * 0.8} Z" fill="url(#leafMid)"/>
-        <!-- Lower Bush Leaves -->
-        <path d="M ${potX + potW * 0.75} ${potY - potH * 0.25} C ${potX + potW * 1.2} ${potY - potH * 0.4} ${potX + potW * 1.1} ${potY - potH * 0.6} ${potX + potW * 0.75} ${potY - potH * 0.25} Z" fill="url(#leafDeep)"/>
-        <path d="M ${potX + potW * 0.3} ${potY - potH * 0.15} C ${potX - potW * 0.1} ${potY - potH * 0.25} ${potX - potW * 0.05} ${potY - potH * 0.45} ${potX + potW * 0.3} ${potY - potH * 0.15} Z" fill="url(#leafFresh)"/>
-      </g>
 
       <!-- Directional Morning Window Sunlight Beam -->
       <rect width="100%" height="100%" fill="url(#morningLight)"/>
