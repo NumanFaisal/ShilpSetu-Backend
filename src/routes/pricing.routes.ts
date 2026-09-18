@@ -25,6 +25,12 @@ router.post(['/pricing/estimate', '/estimate'], async (req: Request, res: Respon
       productId,
     } = req.body || {};
 
+    const isDebug = debug === true || debug === 'true' || req.query.debug === '1';
+
+    if (!name && !category) {
+      return res.status(400).json({ error: 'No product details provided' });
+    }
+
     const result = await pricingService.estimatePricing({
       name,
       category,
@@ -35,13 +41,17 @@ router.post(['/pricing/estimate', '/estimate'], async (req: Request, res: Respon
       wageRate: wageRate != null ? Number(wageRate) : undefined,
       labourCost: labourCost != null ? Number(labourCost) : undefined,
       quantity: quantity != null ? Number(quantity) : 1,
-      debug,
+      debug: isDebug,
       productId: productId ? Number(productId) : undefined,
     });
 
     res.json(result);
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    if (err.statusCode || err.status) {
+      return res.status(err.statusCode || err.status).json({ error: err.message });
+    }
+    console.error('[pricing/estimate] error:', err?.message || err);
+    res.status(500).json({ error: 'Pricing estimate failed. Please try again.' });
   }
 });
 
