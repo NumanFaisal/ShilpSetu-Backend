@@ -4,17 +4,17 @@ import { llmService } from '../ai/llm';
 import { HttpError } from '../lib/http-error';
 
 export interface PricingEstimateInput {
-  name?: string;
-  category?: string;
-  material?: string;
-  craftComplexity?: 'low' | 'medium' | 'high' | 'intricate' | string | number;
+  name?: string | undefined;
+  category?: string | undefined;
+  material?: string | undefined;
+  craftComplexity?: 'low' | 'medium' | 'high' | 'intricate' | string | number | undefined;
   materialCost: number;
   labourHours: number;
-  wageRate?: number;
-  labourCost?: number;
-  quantity?: number;
-  debug?: boolean | string;
-  productId?: number;
+  wageRate?: number | undefined;
+  labourCost?: number | undefined;
+  quantity?: number | undefined;
+  debug?: boolean | string | undefined;
+  productId?: number | undefined;
 }
 
 export interface MarketplacePricePoint {
@@ -26,8 +26,8 @@ export interface MarketplacePricePoint {
 export interface PriceSource {
   title: string;
   url: string;
-  marketplace?: string;
-  extractedPrice?: number | null;
+  marketplace?: string | undefined;
+  extractedPrice?: number | null | undefined;
 }
 
 export interface PriceListingItem {
@@ -64,7 +64,7 @@ export interface PricingEstimateResult {
   sources: PriceSource[];
   pricingSource: 'live_search' | 'benchmark_fallback';
   debug?: any;
-  pricingId?: number;
+  pricingId?: number | undefined;
 }
 
 // ─── Marketplace registry ─────────────────────────────────────────────────────
