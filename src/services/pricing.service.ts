@@ -239,6 +239,19 @@ export function extractPrices(text: string): number[] {
   return [...found].sort((a, b) => a - b);
 }
 
+// Normalize and validate source URLs to ensure clickable links preserve full protocols and paths
+export function normalizeSourceUrl(rawUrl?: string): string {
+  if (!rawUrl) return '';
+  let url = String(rawUrl).trim();
+  if (!url) return '';
+  if (url.startsWith('//')) {
+    url = `https:${url}`;
+  } else if (!/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  return url;
+}
+
 // Extract prices with their source context (title + url) for citation.
 export function extractPricesWithContext(
   results: Array<{ title?: string; content?: string; url?: string }>,
@@ -248,12 +261,13 @@ export function extractPricesWithContext(
   for (const r of results) {
     const combined = `${r.title || ''} ${r.content || ''}`;
     const prices = extractPrices(combined);
+    const cleanUrl = normalizeSourceUrl(r.url);
     for (const price of prices) {
       items.push({
         marketplace: marketplaceId,
         price,
         title: r.title || '',
-        url: r.url || '',
+        url: cleanUrl,
       });
     }
   }
@@ -500,18 +514,23 @@ export class PricingService {
 
     const allPriceItems: PriceListingItem[] = [];
     const allSources: PriceSource[] = [];
+    const seenUrls = new Set<string>();
 
     for (const { marketplace, results } of searchResults) {
       const items = extractPricesWithContext(results, marketplace);
       allPriceItems.push(...items);
 
-      // Collect sources with extracted prices
+      // Collect sources with extracted prices and verified URLs
       for (const r of results) {
+        const cleanUrl = normalizeSourceUrl(r.url);
+        if (!cleanUrl || seenUrls.has(cleanUrl)) continue;
+        seenUrls.add(cleanUrl);
+
         const combined = `${r.title || ''} ${r.content || ''}`;
         const prices = extractPrices(combined);
         allSources.push({
-          title: r.title || '',
-          url: r.url || '',
+          title: r.title || `${marketplace} Listing`,
+          url: cleanUrl,
           marketplace,
           extractedPrice: prices.length ? prices[0] : null,
         });
@@ -519,6 +538,13 @@ export class PricingService {
 
       console.log(`  ${marketplace}: extracted ${items.length} price points`);
     }
+
+    // Prioritize sources that have verified extracted prices
+    allSources.sort((a, b) => {
+      if (a.extractedPrice != null && b.extractedPrice == null) return -1;
+      if (a.extractedPrice == null && b.extractedPrice != null) return 1;
+      return 0;
+    });
 
     // ── Stage 4: Statistical aggregation ──────────────────────────────────
     console.log('\n[pricing] Stage 4 — Statistical Aggregation');
